@@ -1,0 +1,7 @@
+google-adk==2.7.0
+google-genai
+fastapi
+uvicorn[standard]
+twilio
+google-cloud-firestore
+python-dotenv
