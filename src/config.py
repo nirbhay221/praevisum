@@ -17,7 +17,13 @@ class Settings:
     live_model: str = os.getenv(
         "PRAEVISUM_LIVE_MODEL", "gemini-live-2.5-flash-preview-native-audio"
     )
-    worker_model: str = os.getenv("PRAEVISUM_WORKER_MODEL", "gemini-2.5-flash")
+    # Gemini 3.x is served from the `global` Vertex endpoint, not regional.
+    worker_model: str = os.getenv("PRAEVISUM_WORKER_MODEL", "gemini-3.5-flash")
+    # judgment rather than lookup: what to buy, weighing cost against our own
+    # failure record
+    advisor_model: str = os.getenv("PRAEVISUM_ADVISOR_MODEL", "gemini-3.6-flash")
+    # structured form filling, cheapest thing that can do it
+    simple_model: str = os.getenv("PRAEVISUM_SIMPLE_MODEL", "gemini-3.5-flash-lite")
     dealer_name: str = os.getenv("PRAEVISUM_DEALER_NAME", "the service desk")
 
     twilio_account_sid: str = os.getenv("TWILIO_ACCOUNT_SID", "")

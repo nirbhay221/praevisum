@@ -174,8 +174,10 @@ async def main(say: str, inspect: bool) -> None:
 
             if getattr(event, "turn_complete", False):
                 turns += 1
-                print(f"  [turn complete] #{turns}")
-                if turns >= 1:
+                print(f"  [turn complete] #{turns}  (audio so far: {len(audio):,} bytes)")
+                # A tool round trip completes a turn without the model having
+                # spoken yet. Keep listening until it actually says something.
+                if audio or turns >= 4:
                     break
 
     try:

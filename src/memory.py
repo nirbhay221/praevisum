@@ -135,5 +135,67 @@ class VertexRagRepairIndex:
         )
 
 
-# The single index the app uses. Swap the constructor, change nothing else.
+# One index per dealer. Not a nicety: a refrigeration company and an IT
+# warranty provider are separate businesses, and the first test of a shared
+# index had a caller with a warm walk-in being told about Dell LCD panels at
+# 0.449 confidence. What a company has learned in its own vans is the single
+# thing it would never share, so the separation is structural rather than a
+# filter somebody could forget to apply.
+INDEXES: dict[str, RepairIndex] = {}
+
+# Kept for the single-dealer path and for scripts. Points at whichever dealer
+# was loaded last when only one exists.
 INDEX: RepairIndex = LocalRepairIndex()
+
+
+def index_for(dealer_id: str | None) -> RepairIndex:
+    """The corpus belonging to one dealer, and only that dealer."""
+    if dealer_id and dealer_id in INDEXES:
+        return INDEXES[dealer_id]
+    return INDEX
+
+
+def load_from_db() -> int:
+    """Fill one index per dealer from the repairs table.
+
+    Rebuilt at startup. Every closed visit adds a row there and a document to
+    exactly one dealer's index, so the two never drift and never mix.
+    """
+    from .domain.models import Repair
+    from . import db
+
+    global INDEX, INDEXES
+    INDEXES = {}
+    total = 0
+
+    with db.connect() as c:
+        rows = c.execute(
+            """SELECT id, asset_id, manufacturer, model_number, reported_symptom,
+                      error_code, found_cause, tech_note, parts_consumed,
+                      labor_hours, closed_on, technician_id, dealer_id
+               FROM repairs ORDER BY closed_on""").fetchall()
+
+    for r in rows:
+        narrative = r["found_cause"]
+        if r["tech_note"]:
+            narrative = f"{narrative}. {r['tech_note']}"
+        dealer = r["dealer_id"] or "unassigned"
+        INDEXES.setdefault(dealer, LocalRepairIndex()).add(Repair(
+            id=r["id"],
+            serial=r["asset_id"] or "",
+            manufacturer=r["manufacturer"],
+            model=r["model_number"],
+            reported_symptom=r["reported_symptom"] or "",
+            error_code=r["error_code"],
+            found_cause=narrative,
+            parts_consumed=tuple(
+                s for s in (r["parts_consumed"] or "").split(",") if s),
+            labor_hours=r["labor_hours"] or 0.0,
+            closed_on=r["closed_on"],
+            technician_id=r["technician_id"] or "",
+        ))
+        total += 1
+
+    if INDEXES:
+        INDEX = max(INDEXES.values(), key=lambda i: i.size())
+    return total

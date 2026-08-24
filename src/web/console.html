@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Praevisum</title>
+<style>
+  :root{
+    --bg:#0B1014; --panel:#131B21; --panel2:#182229; --line:#233039;
+    --ink:#DDE6EB; --ink2:#8FA0AC; --ink3:#5F717D;
+    --teal:#4FBFD1; --gold:#D8A94A; --good:#4FBF98; --warn:#DB7A5A;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  code,.mono,.num{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+
+  header{display:flex;align-items:center;gap:18px;padding:14px 20px;
+    border-bottom:1px solid var(--line);background:var(--panel)}
+  header h1{margin:0;font-size:17px;font-weight:700;letter-spacing:-.02em}
+  header .sub{color:var(--ink3);font-size:12px}
+  select{background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+    border-radius:4px;padding:6px 10px;font-size:13px;margin-left:auto}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--ink3);display:inline-block}
+  .dot.on{background:var(--good);box-shadow:0 0 8px var(--good)}
+
+  .wrap{display:grid;grid-template-columns:1fr 400px;gap:14px;padding:14px;
+    align-items:start;max-width:1500px;margin:0 auto}
+  @media(max-width:1000px){.wrap{grid-template-columns:1fr}}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:6px;
+    margin-bottom:14px;overflow:hidden}
+  .card h2{margin:0;padding:11px 15px;font-size:12px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--ink3);border-bottom:1px solid var(--line);
+    display:flex;justify-content:space-between;align-items:center}
+  .card .body{padding:13px 15px}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:1px;
+    background:var(--line)}
+  .stat{background:var(--panel);padding:12px 14px}
+  .stat .n{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;
+    font-family:ui-monospace,Menlo,monospace}
+  .stat .l{font-size:11px;color:var(--ink3);margin-top:2px}
+  .stat.hl .n{color:var(--gold)}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink3);font-weight:500;padding:0 10px 7px 0;border-bottom:1px solid var(--line)}
+  td{padding:7px 10px 7px 0;border-bottom:1px solid #1a242b;color:var(--ink2);
+    vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td.name{color:var(--ink)}
+  td.r{text-align:right;font-family:ui-monospace,Menlo,monospace;
+    font-variant-numeric:tabular-nums}
+  .pill{display:inline-block;font-size:10px;padding:2px 7px;border-radius:3px;
+    background:#1d2b33;color:var(--ink2);font-family:ui-monospace,Menlo,monospace}
+  .pill.gold{background:#2c2415;color:var(--gold)}
+  .pill.good{background:#10261f;color:var(--good)}
+  .pill.warn{background:#2b1a14;color:var(--warn)}
+  .pill.teal{background:#102a30;color:var(--teal)}
+
+  /* live feed */
+  #feed{height:520px;overflow-y:auto;padding:10px 14px;font-size:13px}
+  .ev{display:flex;gap:10px;padding:5px 0;border-bottom:1px solid #16202600}
+  .ev .t{color:var(--ink3);font-family:ui-monospace,Menlo,monospace;font-size:11px;
+    flex:0 0 54px;padding-top:2px}
+  .ev .m{min-width:0;word-wrap:break-word}
+  .ev.caller .m{color:var(--ink)}
+  .ev.agent .m{color:var(--teal)}
+  .ev.tool .m{color:var(--ink3);font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+  .ev.briefing .m{color:var(--gold);font-weight:600}
+  .ev.work_order .m,.ev.promise .m,.ev.dispatch .m{color:var(--good)}
+  .ev.console .m{color:var(--warn)}
+  .ev.call_start .m,.ev.call_end .m{color:var(--ink3);font-style:italic}
+  .who{font-size:10px;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--ink3);margin-right:6px}
+
+  form.ask{display:flex;gap:8px;padding:12px 15px;border-top:1px solid var(--line)}
+  input[type=text]{flex:1;background:var(--bg);border:1px solid var(--line);
+    border-radius:4px;color:var(--ink);padding:9px 11px;font-size:13px}
+  input[type=text]:focus{outline:none;border-color:var(--teal)}
+  button{background:var(--teal);color:#06181c;border:0;border-radius:4px;
+    padding:9px 15px;font-size:13px;font-weight:600;cursor:pointer}
+  button:disabled{opacity:.45;cursor:default}
+  .reply{padding:0 15px 13px;color:var(--ink2);font-size:13px;min-height:20px}
+  .reply.err{color:var(--warn)}
+  .hint{padding:0 15px 12px;color:var(--ink3);font-size:11.5px}
+  .empty{color:var(--ink3);font-size:12.5px;padding:6px 0}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Praevisum</h1>
+  <span class="sub">field service desk</span>
+  <span class="sub"><span class="dot" id="live"></span> <span id="livetext">connecting</span></span>
+  <select id="dealer"></select>
+</header>
+
+<div class="wrap">
+  <div>
+    <div class="card">
+      <h2>Today <span id="phone" class="pill"></span></h2>
+      <div class="stats" id="stats"></div>
+    </div>
+
+    <div class="card">
+      <h2>Open jobs</h2>
+      <div class="body"><table id="jobs"></table></div>
+    </div>
+
+    <div class="card">
+      <h2>Parts and prices <span class="pill" id="partcount"></span></h2>
+      <div class="body"><table id="parts"></table></div>
+    </div>
+
+    <div class="card">
+      <h2>Offers running</h2>
+      <div class="body"><table id="promos"></table></div>
+      <form class="ask" id="ask">
+        <input type="text" id="cmd" autocomplete="off"
+               placeholder="tell it what changed, e.g. door gaskets are 92 now">
+        <button id="send">Send</button>
+      </form>
+      <div class="reply" id="reply"></div>
+      <div class="hint">The console is the only place an offer can be created.
+        The phone agent can read offers and never write them.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Live <span class="pill teal" id="evcount">0</span></h2>
+    <div id="feed"><div class="empty">waiting for a call</div></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let dealer = null, es = null, n = 0;
+
+async function boot(){
+  const ds = await (await fetch('/api/dealers')).json();
+  $('#dealer').innerHTML = ds.map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
+  dealer = ds[0].id;
+  $('#dealer').onchange = e => { dealer = e.target.value; refresh(); connect(); };
+  refresh(); connect();
+}
+
+async function refresh(){
+  const s = await (await fetch(`/api/snapshot?dealer=${dealer}`)).json();
+  $('#phone').textContent = s.dealer.phone_e164 || '';
+  const st = s.stats || {};
+  $('#stats').innerHTML = [
+    ['customers', st.customers], ['technicians', st.techs],
+    ['open jobs', st.open_jobs], ['calls', st.calls],
+    ['repairs learned', st.repairs],
+    ['first-visit fix', s.first_visit_fix != null ? s.first_visit_fix+'%' : '-', true]
+  ].map(([l,v,hl])=>`<div class="stat ${hl?'hl':''}"><div class="n">${v??0}</div><div class="l">${l}</div></div>`).join('');
+
+  $('#jobs').innerHTML = s.open_jobs.length
+    ? `<tr><th>Job</th><th>Customer</th><th>Reported</th></tr>` + s.open_jobs.map(j=>
+      `<tr><td class="mono">${j.id}</td><td class="name">${j.customer}</td>
+       <td>${j.reported_symptom||''}</td></tr>`).join('')
+    : `<tr><td class="empty">nothing open</td></tr>`;
+
+  $('#partcount').textContent = s.parts.length + ' parts';
+  $('#parts').innerHTML = `<tr><th>Part</th><th>SKU</th><th class="r">Price</th>
+      <th class="r">Stock</th><th class="r">Lead</th></tr>` +
+    s.parts.map(p=>`<tr><td class="name">${p.name}</td>
+      <td><span class="pill">${p.sku}</span></td>
+      <td class="r">$${p.unit_cost.toFixed(2)}</td>
+      <td class="r">${p.on_hand}</td>
+      <td class="r">${p.lead_time_days}d</td></tr>`).join('');
+
+  $('#promos').innerHTML = s.promotions.length
+    ? `<tr><th>Offer</th><th>Applies to</th><th class="r">Ends</th></tr>` +
+      s.promotions.map(p=>`<tr><td class="name">${p.headline}
+        <div style="color:var(--ink3);font-size:11.5px">${p.detail||''}</div></td>
+        <td>${p.parts||'<span style="color:var(--ink3)">general</span>'}</td>
+        <td class="r"><span class="pill gold">${p.ends}</span></td></tr>`).join('')
+    : `<tr><td class="empty">no offers running</td></tr>`;
+}
+
+function connect(){
+  if(es) es.close();
+  n = 0; $('#evcount').textContent = 0;
+  $('#feed').innerHTML = '<div class="empty">waiting for a call</div>';
+  es = new EventSource(`/api/events?dealer=${dealer}`);
+  es.onopen = () => { $('#live').classList.add('on'); $('#livetext').textContent='live'; };
+  es.onerror = () => { $('#live').classList.remove('on'); $('#livetext').textContent='reconnecting'; };
+  es.onmessage = e => push(JSON.parse(e.data));
+}
+
+function push(ev){
+  const feed = $('#feed');
+  if(n === 0) feed.innerHTML = '';
+  n++; $('#evcount').textContent = n;
+  const label = {caller:'caller', agent:'agent', tool:'tool', briefing:'briefing',
+                 work_order:'job', dispatch:'dispatch', promise:'promised',
+                 call_start:'', call_end:'', console:'console'}[ev.kind] ?? ev.kind;
+  const text = ev.text ?? ev.what ?? ev.detail ?? JSON.stringify(ev);
+  const div = document.createElement('div');
+  div.className = 'ev ' + ev.kind;
+  div.innerHTML = `<div class="t">${ev.at}</div><div class="m">${
+    label ? `<span class="who">${label}</span>` : ''}${escape_(text)}</div>`;
+  feed.appendChild(div);
+  feed.scrollTop = feed.scrollHeight;
+  if(['work_order','promise','console','briefing'].includes(ev.kind)) refresh();
+}
+const escape_ = s => String(s).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+
+$('#ask').onsubmit = async e => {
+  e.preventDefault();
+  const cmd = $('#cmd').value.trim();
+  if(!cmd) return;
+  $('#send').disabled = true; $('#reply').className='reply';
+  $('#reply').textContent = 'thinking...';
+  try{
+    const r = await (await fetch('/api/command', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({dealer, text: cmd})
+    })).json();
+    $('#reply').textContent = r.reply || r.error || 'done';
+    if(r.error) $('#reply').className = 'reply err';
+    $('#cmd').value = '';
+    refresh();
+  }catch(err){
+    $('#reply').className='reply err'; $('#reply').textContent = String(err);
+  }
+  $('#send').disabled = false; $('#cmd').focus();
+};
+
+boot();
+</script>
+</body>
+</html>

@@ -71,7 +71,23 @@ Commercial refrigeration and kitchen equipment service. You are the service and 
 
 ## Track
 
-**Collaborative Partner** - live dialogue, clarifying questions, adapting. **12 entries** vs Taskmaster's 35, where all four direct competitors sit (valence, hostpilot, lead-recovery-agent, S2PNexus).
+**Taskmaster.**
+
+Devpost's wording for it: *"a complete workflow, not just a chatbot"*, an agent
+that *"takes action"* on a *"messy, multi-step chore"* and can *"send the right
+info to the right places"* **"without constant user direction"**.
+
+That is this system. A customer rings, and nine steps later a technician has a
+booked slot, reserved parts and a briefing. Separately, a daily sweep nobody
+starts looks for people worth ringing.
+
+Collaborative Partner was the earlier pick, on field size. It was dropped after
+reading Devpost's own examples for it: an agent that *"quizzes you as you go and
+learns which concepts you struggle with"*, or one that *"learns your brand
+preferences from your corrections"*. Both are one user, taught over sessions.
+A caller who rings twice a year about a freezer is a different shape, and the
+learning here improves the system from many callers rather than the
+relationship with one.
 
 ---
 
@@ -110,12 +126,12 @@ Commercial refrigeration and kitchen equipment service. You are the service and 
 | Model | Gemini 3.5 (Vertex AI) - Gemini Live for the audio loop - multimodal reads the nameplate photo |
 | Framework | **Google ADK** (Python) |
 | Telephony | Twilio inbound, WebSocket media stream |
-| Compute | Cloud Run |
-| State | Firestore - customers, stock, technicians, work orders, complaint history |
-| Retrieval | Vector search over complaint text |
-| Events | Pub/Sub |
-| Watch | Cloud Scheduler (commitment keeper) |
-| Channels out | WhatsApp (Twilio), email |
+| Compute | Compute Engine VM. **Not Cloud Run**: a call holds a websocket open for its whole length, and scaling to zero mid-call drops the customer |
+| State | SQLite in production, with a working Cloud SQL Postgres backend behind `PRAEVISUM_DB_BACKEND`. **Not Firestore**: 36 tables, 7 views, foreign keys and cross-table transactions |
+| Retrieval | Vertex `text-embedding-005` over the repair corpus, one index per dealer, word-overlap fallback |
+| Events | Pub/Sub for briefings and outreach, behind `PRAEVISUM_BUS`. In-process SSE for the console |
+| Watch | systemd timer running the outreach sweep daily |
+| Channels out | SMS. WhatsApp and email not built |
 
 ### What ADK gives us
 Open-source agent execution framework (Python / Java / Go / TypeScript), supports A2A.
@@ -183,25 +199,59 @@ Stolen from `aish2897/after-hours-site-continuity-fleet`, which is a good patter
 
 | Component | State | Note |
 |---|---|---|
-| Domain model + seeded dealer data | `VERIFIED` | 5 brands, 3 sites, 3 techs, 6 seeded repairs |
-| Tools (identify, history, stock, dispatch, work order, promise, briefing) | `VERIFIED` | `scripts/smoke.py` runs the full chain with no credentials |
-| **Briefing from repair history** | `VERIFIED` | Correctly surfaces both parts, excludes van stock |
-| **Closed learning loop** | `VERIFIED` | `scripts/loop.py` - new fault, technician writes it down, a different unit at a different site recalls it from different words |
-| Semantic recall (TF-IDF cosine, offline) | `VERIFIED` | 0 keyword overlap, still recalled at score 0.219 |
-| Fitment guard on suggested parts | `VERIFIED` | Recall crosses manufacturers, parts do not. Caught a Whirlpool board being sent to a Traulsen |
-| Proximity dispatch (haversine + drive time) | `VERIFIED` | Technicians ordered by drive time from the site, not just skills |
-| Work-order close + transcript capture | `VERIFIED` | Releases unused reservations back to stock on close |
-| Vertex AI RAG corpus behind the same interface | `NOT BUILT` | `VertexRagRepairIndex` is a stub; `LocalRepairIndex` is the working one |
-| ADK memory service on the Runner | `NOT BUILT` | Runner currently gets a session service only |
-| Promise refusal on unavailable part | `IMPLEMENTED` | Reserve-or-refuse logic written, not yet exercised on the contended SKU |
-| Agent graph (front / parallel lookups / parts) | `IMPLEMENTED` | Builds and wires; not yet run against a model |
-| Twilio to LiveRequestQueue bridge | `IMPLEMENTED` | Written, never carried a real call |
-| Audio transcode (mulaw 8k / PCM 16k / PCM 24k) | `IMPLEMENTED` | Continuous resampler state, untested against real audio |
-| Live inbound call loop end to end | `NOT BUILT` | Needs GCP project + Twilio number + tunnel |
+| **Live inbound call, end to end** | `VERIFIED` | Real call answered 2026-08-20. Journal shows the tool calls and the spoken greeting |
+| Twilio to LiveRequestQueue bridge | `VERIFIED` | Carried that call |
+| Audio transcode (mulaw 8k / PCM 16k / 24k) | `VERIFIED` | Same call. Continuous resampler state, no clicks |
+| Websocket auth on `/stream` | `VERIFIED` | Live: no ticket 403, forged 403, expired 403, issued ticket accepted |
+| Agent graph (front / parallel lookups / parts) | `VERIFIED` | Runs against real models |
+| Domain model + generated dealer book | `VERIFIED` | 2 dealers, 420 machines over 48 models, 670 closed repairs |
+| **Briefing from repair history** | `VERIFIED` | Expected-value van loading, with the money shown |
+| **Briefing actually dispatched** | `VERIFIED` | Rendered and published to Pub/Sub; message pulled back and checked |
+| **Closed learning loop** | `VERIFIED` | Technician texts back, Gemma parses it locally, the corpus grows |
+| Semantic recall | `VERIFIED` | Vertex `text-embedding-005`, 670/670 embedded, per-dealer indexes |
+| Multi-tenancy | `VERIFIED` | Two dealers, separate corpora, tests hunt for leaks |
+| Fitment guard on suggested parts | `VERIFIED` | Recall crosses manufacturers, parts never do. Family guard too: a UPS gets no laptop parts |
+| Proximity dispatch (haversine + drive time) | `VERIFIED` | Ordered by drive time, not just skills |
+| Promise refusal on unavailable part | `VERIFIED` | Refused promise leaves nothing behind. Proven on SQLite and Cloud SQL |
+| Trade counter + walk-in booking | `VERIFIED` | Regulars are never offered it; closed days and hours refused |
+| Complaints as evidence | `VERIFIED` | Counted against a model with the denominator, quoted in the customer's words |
+| Returns | `VERIFIED` | Unopened parts go back on the shelf and cut the reorder; returned machines count against the model |
+| Restock advice | `VERIFIED` | Periodic-review reorder point, complaint signal discounted three ways |
+| Federal recalls in buying advice | `VERIFIED` | Machine vs accessory recalls distinguished; recalled models cannot be recommended |
+| **Outreach sweep (recalls, predictions, offers)** | `VERIFIED` | Daily systemd timer, runs with no human. Consent enforced, safety recalls exempt |
+| Outbound call consumer | `IMPLEMENTED` | Claims a call, hands over the opening line, honours opt-out. Never dialled anybody |
+| ADK memory service on the Runner | `VERIFIED` | `recall.py` implements `BaseMemoryService`, per-dealer |
+| Cloud SQL Postgres backend | `VERIFIED` | Full schema applied, business logic run against it. Instance stopped to save cost |
+| Pub/Sub | `VERIFIED` | Two topics exercised, then switched off |
+| Owner console (prices, stock, offers, reorder) | `IMPLEMENTED` | Works; the agent itself is untested |
+| Hold music during a lookup | `IMPLEMENTED` | Lyria track, 1.6s lead-in, cuts on speech. Never heard on a real call |
+| Barge-in | `IMPLEMENTED` | Trusts `event.interrupted`, which has never been seen to fire |
+| Vertex AI RAG corpus product | `NOT BUILT` | We embed and search ourselves; the managed product is unused |
+| Outside reviews (Google Shopping) | `VERIFIED` | Run live against the real book. Model level, then brand level within the category, labelled which. Answers where the market answers (Brother 6,304, Lenovo 3,629, True 107) and stays quiet where it does not (Traulsen 19, Beverage-Air reach-ins single digits per model). Never blended with our own record |
+| Desk reachable from any channel | `IMPLEMENTED` | `desk.answer(identity, text, media)` is the whole brain; a channel only proves who called, downloads what it carried, and sends the reply. One copy of the rules, asserted shared by test |
+| WhatsApp connector | `VERIFIED` | Signed webhook on the live server, fails closed with no token. A signed message came back with a real recommendation off the book in 20s, and a complaint written from a message landed in `complaints` as `CMP-986AC9`. Photo intake not yet exercised from a real handset |
+| Telegram connector | `IMPLEMENTED` | Free, no verification, no join code. Secret-token webhook, fails closed. Weaker identity: no phone number, so a technician must `/link` once before they can close jobs, and nothing is guessed from a display name |
+| Photo intake (data plate) | `IMPLEMENTED` | Vision transcribes the plate, the federal catalogue confirms it. An unrecognised reading is reported as unconfirmed rather than accepted, because a misread plate picks the wrong refrigerant |
+| Email connector | `NOT BUILT` | Another pipe for words the phone already carries. Deliberately after WhatsApp, which adds a modality |
 | Equipment specialist (per-brand manuals) | `NOT BUILT` | |
 | Commitment keeper | `NOT BUILT` | |
-| WhatsApp + photo intake | `NOT BUILT` | |
+| Missed calls | `VERIFIED` | The call row was written inside the media stream's `start` event, so a caller who hung up before it connected left no trace anywhere. `POST /call-status` records Twilio's verdict; a signed test created the row and queued a follow-up on the live server |
+| Dropped-call resume | `IMPLEMENTED` | `review.settle` already knew a call had an intent and produced nothing; it now queues a message carrying the caller's own words back, so nobody reads a model number out a fourth time |
+| After-visit check | `IMPLEMENTED` | One question a day after the job closes: is it holding. Not a satisfaction score, and never asked on the call, where the moment is wrong and the evidence is weaker than what the database already has |
+| Call review, all four flows | `IMPLEMENTED` | `calls.intent` and `calls.outcome` were designed in from the first schema and never written; both now are. Outcome is derived from the tables a call wrote, never declared by the agent. A call that ended with no van because a documented fix worked counts as a WIN, which is the opposite of how a bought containment metric scores it. Structural signals only, no sentiment. `GET /api/review` |
 | Eval / ablation harness | `NOT BUILT` | The persuasive one. Same calls, briefing off vs on |
+
+### Honest caveats
+
+- The dealer book is **generated**, not real. Machines and recalls are real
+  public federal data; the customers, repairs, complaints and returns are not.
+- The complaint-to-part signal measures **66%** against ground truth, but that
+  ground truth is synthetic too. It shows the mechanism works, not that real
+  complaints predict real failures.
+- Outbound calling is built and **has never dialled anybody**. An AI voice is an
+  "artificial or prerecorded voice" under the TCPA, so marketing calls require
+  prior express written consent; the code enforces that and exempts safety
+  recalls, which are not marketing.
 
 ## Not yet on GitHub
 

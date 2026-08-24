@@ -33,6 +33,14 @@ from src.tools import (  # noqa: E402
     promise_slot,
 )
 
+class _Ctx:
+    """Minimal stand-in for ADK's ToolContext so the scripts can call tools
+    directly. Identity comes from session state, never from an argument."""
+    def __init__(self, phone): self.state = {"caller_phone": phone}
+
+
+def _ctx(phone): return _Ctx(phone)
+
 SEP = "=" * 74
 
 
@@ -45,7 +53,7 @@ act(1, "A fault nobody has seen before")
 
 NEW_FAULT = "the door keeps icing up and it is sweating around the frame"
 
-caller = identify_caller("+13095550101")
+caller = identify_caller(_ctx("+13095550101"))
 unit = "TRL-G24-8871"                       # Pearl Street's Traulsen
 print(f"caller  : {caller['name']}")
 print(f"unit    : Traulsen G22010  ({unit})")
@@ -90,7 +98,7 @@ act(3, "Different site. Different unit. Different words.")
 
 OTHER_WORDS = "freezer door is sweating and keeps freezing shut in the mornings"
 
-caller2 = identify_caller("+13095550102")
+caller2 = identify_caller(_ctx("+13095550102"))
 unit2 = "TRL-G24-9903"                      # Rivertown Tap's Traulsen, same model
 print(f"caller  : {caller2['name']}")
 print(f"unit    : Traulsen G22010  ({unit2})   <- a different physical unit")

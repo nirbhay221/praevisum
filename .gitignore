@@ -5,3 +5,16 @@ __pycache__/
 *.db
 recordings/
 .DS_Store
+
+# service account keys. Never commit these, and keep them outside the repo.
+*.json
+!package.json
+*-key.json
+credentials*.json
+service-account*.json
+
+# generated websocket signing key, never shared
+.stream_secret
+
+# 6.1MB source track. The served file is assets/hold.wav.
+assets/hold_music.wav

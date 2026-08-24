@@ -24,6 +24,14 @@ from src.tools import (  # noqa: E402
     promise_slot,
 )
 
+class _Ctx:
+    """Minimal stand-in for ADK's ToolContext so the scripts can call tools
+    directly. Identity comes from session state, never from an argument."""
+    def __init__(self, phone): self.state = {"caller_phone": phone}
+
+
+def _ctx(phone): return _Ctx(phone)
+
 SEP = "-" * 72
 
 
@@ -33,7 +41,7 @@ def show(title: str, obj) -> None:
 
 
 # 1. the phone rings
-caller = identify_caller("+13095550101")
+caller = identify_caller(_ctx("+13095550101"))
 show("1. who is calling", caller)
 
 unit = next(u for u in caller["units"] if u["family"] == "reach-in freezer")
