@@ -71,6 +71,11 @@
   .ev.briefing .m{color:var(--gold);font-weight:600}
   .ev.work_order .m,.ev.promise .m,.ev.dispatch .m{color:var(--good)}
   .ev.console .m{color:var(--warn)}
+  /* The arithmetic behind a decision. Monospaced and indented because it is
+     meant to be read as a calculation, not as a sentence, and a dealer should
+     be able to disagree with the numbers rather than with a hunch. */
+  .ev.reasoning .m{color:var(--gold);font-family:ui-monospace,Menlo,monospace;
+    font-size:11.5px;white-space:pre;letter-spacing:-.2px}
   .ev.call_start .m,.ev.call_end .m{color:var(--ink3);font-style:italic}
   .who{font-size:10px;text-transform:uppercase;letter-spacing:.08em;
     color:var(--ink3);margin-right:6px}
@@ -197,7 +202,8 @@ function push(ev){
   n++; $('#evcount').textContent = n;
   const label = {caller:'caller', agent:'agent', tool:'tool', briefing:'briefing',
                  work_order:'job', dispatch:'dispatch', promise:'promised',
-                 call_start:'', call_end:'', console:'console'}[ev.kind] ?? ev.kind;
+                 call_start:'', call_end:'', console:'console',
+                 reasoning:''}[ev.kind] ?? ev.kind;
   const text = ev.text ?? ev.what ?? ev.detail ?? JSON.stringify(ev);
   const div = document.createElement('div');
   div.className = 'ev ' + ev.kind;

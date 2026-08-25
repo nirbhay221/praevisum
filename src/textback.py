@@ -214,6 +214,16 @@ def close_by_text(technician_phone: str, message: str,
     Returns:
         What was written, what could not be resolved, and the new corpus size.
     """
+    # "loaded" is a different message from a job closure and arrives first.
+    # Read in this order because close_by_text would otherwise try to parse it
+    # as a finding and write "loaded" into the corpus as a found cause.
+    from .dispatch import confirm_loaded
+
+    loaded = confirm_loaded(technician_phone, message, visit_id)
+    if loaded.get("confirmed"):
+        return {"ok": True, "kind": "parts_confirmed", "visit": loaded["visit"],
+                "reply_to_technician": loaded["reply_to_technician"]}
+
     with db.connect() as c:
         tech = c.execute("SELECT id, name FROM technicians WHERE phone=?",
                          (technician_phone,)).fetchone()
@@ -323,8 +333,13 @@ def close_by_text(technician_phone: str, message: str,
                 parts_consumed=tuple(resolved), labor_hours=hours or 0.0,
                 closed_on=now.date().isoformat(), technician_id=tech["id"]))
             indexed = True
-        except Exception:
-            pass
+        except Exception as e:
+            # `indexed` stays False and is returned, so this is visible in the
+            # result. It is logged as well because a repair that never reaches
+            # the index is the loop failing to close: the whole point of the
+            # technician's reply is that the NEXT caller benefits from it.
+            print(f"[textback] {repair_id} was written but not indexed: "
+                  f"{type(e).__name__}: {e}", flush=True)
 
     # The job is closed. A day from now, ask the customer the one question the
     # database cannot answer for itself: did it hold. Only on a job that was

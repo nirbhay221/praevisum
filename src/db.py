@@ -19,6 +19,7 @@ rather than silently double-booked.
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -52,6 +53,10 @@ SCHEMA_FILES = [
     "schema_channels.sql",
     "schema_review.sql",
     "schema_followup.sql",
+    "schema_decisions.sql",
+    "schema_memory.sql",
+    "schema_dispatch.sql",
+    "schema_supply.sql",
 ]
 
 SCHEMA_PATH = HERE / "schema.sql"
@@ -214,6 +219,83 @@ def connect():
     return conn
 
 
+# Columns that cannot be added to a table that already exists, whatever the
+# schema file says. SQLite refuses a PRIMARY KEY or a UNIQUE column after the
+# fact, and a NOT NULL one without a default has no value to give the rows
+# already there.
+_CANNOT_ADD = ("primary key", "unique")
+
+_COLUMN = re.compile(r"^\s*([a-z_][a-z0-9_]*)\s+(TEXT|INTEGER|REAL|BLOB|NUMERIC)",
+                     re.I)
+
+
+def _declared_columns(sql: str) -> dict[str, list[tuple[str, str]]]:
+    """Every column each CREATE TABLE in a schema file declares.
+
+    Deliberately a small parser rather than a dependency. It only has to read
+    the shape this project actually writes, and being narrow means it fails to
+    match rather than guessing wrong.
+    """
+    out: dict[str, list[tuple[str, str]]] = {}
+    for m in re.finditer(
+            r"CREATE TABLE(?:\s+IF NOT EXISTS)?\s+([a-z_][a-z0-9_]*)"
+            r"\s*\((.*?)\n\s*\);",
+            sql, re.I | re.S):
+        table, body = m.group(1), m.group(2)
+        cols = []
+        for line in body.splitlines():
+            line = line.split("--")[0].rstrip().rstrip(",")
+            hit = _COLUMN.match(line)
+            if hit and hit.group(1).lower() not in (
+                    "primary", "unique", "foreign", "check", "constraint"):
+                cols.append((hit.group(1), line.strip()))
+        if cols:
+            out[table] = cols
+    return out
+
+
+def _reconcile_columns(conn, sql: str) -> list[str]:
+    """Add columns a schema file declares that the live table is missing.
+
+    CREATE TABLE IF NOT EXISTS does nothing to a table that already exists, so
+    a column added to an existing definition reaches a fresh database and
+    never reaches a live one. That is exactly how the VM ended up without
+    `complaints.predicted_repair` while every test passed on a laptop where
+    the table had been built from scratch.
+
+    Only safe additions are attempted. Anything SQLite would refuse is skipped
+    and reported rather than raised, because a schema file is allowed to
+    describe a table that must be rebuilt by hand.
+    """
+    added = []
+    for table, cols in _declared_columns(sql).items():
+        try:
+            have = {r[1].lower() for r in conn.execute(f"PRAGMA table_info({table})")}
+        except Exception:
+            continue
+        if not have:
+            continue                     # table does not exist yet; CREATE made it
+        for name, decl in cols:
+            if name.lower() in have:
+                continue
+            low = decl.lower()
+            if any(bad in low for bad in _CANNOT_ADD):
+                print(f"[schema] {table}.{name} cannot be added in place, "
+                      "the table needs rebuilding by hand", flush=True)
+                continue
+            if "not null" in low and "default" not in low:
+                print(f"[schema] {table}.{name} is NOT NULL with no default, "
+                      "skipped", flush=True)
+                continue
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {decl}")
+                added.append(f"{table}.{name}")
+            except Exception as e:
+                print(f"[schema] could not add {table}.{name}: "
+                      f"{type(e).__name__}: {e}", flush=True)
+    return added
+
+
 def init() -> None:
     """Build the database from the schema files. Safe to run on a live one.
 
@@ -242,6 +324,13 @@ def init() -> None:
                     except sqlite3.OperationalError as inner:
                         if "duplicate column name" not in str(inner):
                             raise
+
+            # And columns added to a CREATE TABLE that already exists, which
+            # no amount of IF NOT EXISTS will apply to a live database.
+            added = _reconcile_columns(c, sql)
+            if added:
+                print(f"[schema] added missing columns: {', '.join(added)}",
+                      flush=True)
 
 
 @contextmanager

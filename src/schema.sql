@@ -56,7 +56,15 @@ CREATE TABLE IF NOT EXISTS contacts (
     name        TEXT NOT NULL,
     role        TEXT,
     email       TEXT,
-    channel_pref TEXT DEFAULT 'sms'
+    channel_pref TEXT DEFAULT 'sms',
+
+    -- What they would rather be spoken to in, once we have heard them.
+    --
+    -- Null until a call establishes it, because guessing from a name is worse
+    -- than asking: plenty of people called Ramirez would rather do this in
+    -- English, and being addressed in Spanish on that assumption is its own
+    -- insult. Set from what they actually said, not from who they are.
+    language     TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_contacts_account ON contacts(account_id);
 

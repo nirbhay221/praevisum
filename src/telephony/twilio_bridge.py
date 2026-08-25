@@ -110,6 +110,12 @@ def _opening_brief(who: dict) -> str:
             lines.append("That one took two visits, so be careful not to "
                          "repeat it.")
 
+    # What we have learned about dealing with THEM, not about their equipment.
+    # Only where there were enough past conversations for it to mean anything,
+    # so a first-time caller is never told how they usually behave.
+    for instruction in (who.get("habits") or {}).get("do_this", []):
+        lines.append(instruction)
+
     lines.append("Greet them by name. Do not read any of this back as a list.]")
     return " ".join(lines)
 
@@ -186,6 +192,14 @@ async def handle_call(ws: WebSocket) -> None:
                             "UPDATE calls SET dealer_id=?, twilio_sid=?, "
                             "connected=1 WHERE id=?",
                             (dealer_id, start.get("callSid"), call_id))
+
+                    # Every decision made from here on is tied to this call,
+                    # so "why did the desk carry that part" is answerable
+                    # three weeks later rather than only while somebody is
+                    # watching the dashboard.
+                    from ..trace import call_context
+
+                    call_context(call_id)
 
                     session = await _session_service.create_session(
                         app_name=APP_NAME,

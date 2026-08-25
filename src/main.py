@@ -324,6 +324,53 @@ def api_review(dealer: str = "D-REF", days: int = 30) -> dict:
     return review(dealer, days)
 
 
+@app.get("/api/supply")
+def api_supply(dealer: str = "D-REF") -> dict:
+    """What is on order, what is late, and what was advised and never bought."""
+    from .supply import advised_but_not_ordered, on_order
+    return {"on_order": on_order(dealer),
+            "advised_not_ordered": advised_but_not_ordered(dealer)}
+
+
+@app.get("/api/calibration")
+def api_calibration(dealer: str = "D-REF", days: int = 365) -> dict:
+    """What this desk's probabilities have actually been worth.
+
+    The desk says 44% and a technician later says what it really was. Those
+    two facts always existed and were never compared, because the prediction
+    was never written down.
+    """
+    from .calibration import reliability, worst_misses
+    out = reliability(dealer, days)
+    out["worst_misses"] = worst_misses(dealer, days)
+    return out
+
+
+@app.get("/api/unloaded")
+def api_unloaded(dealer: str = "D-REF") -> dict:
+    """Visits due soon where nobody has confirmed the parts are on the van."""
+    from .dispatch import how_often_unloaded, unconfirmed
+    return {"waiting": unconfirmed(dealer), "record": how_often_unloaded(dealer)}
+
+
+@app.get("/api/patterns")
+def api_patterns(dealer: str = "D-REF", days: int = 30) -> dict:
+    """What the desk keeps failing at, grouped until it has a name.
+
+    The half that was missing: review.py measured every call and nothing read
+    it, so the instrument existed and nothing was wired to the dial.
+    """
+    from .patterns import failing_patterns
+    return failing_patterns(dealer, days)
+
+
+@app.get("/api/why")
+def api_why(call: str) -> dict:
+    """Every decision made during one call, with the arithmetic behind it."""
+    from .patterns import where_the_reasoning_went
+    return where_the_reasoning_went(call)
+
+
 @app.get("/api/events")
 async def api_events(dealer: str = "D-REF") -> StreamingResponse:
     """Server-sent events. A dashboard never blocks a call: if nobody is

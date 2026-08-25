@@ -56,7 +56,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 
-from . import db
+from . import db, trace
 
 # A call that never got classified and produced nothing. Kept separate from a
 # classified call that produced nothing, because they fail for different
@@ -299,9 +299,11 @@ def settle(call_id: str) -> dict:
             print(f"[review] could not queue a follow-up: "
                   f"{type(e).__name__}: {e}", flush=True)
 
-    return {"ok": True, "call": call_id, "intent": intent or None,
+    out = {"ok": True, "call": call_id, "intent": intent or None,
             "outcome": outcome, "resolved": resolved,
             "avoided_visit": avoided, "turns": turns, "seconds": seconds}
+    trace.settled(call["dealer_id"], out)
+    return out
 
 
 def review(dealer_id: str = "D-REF", days: int = 30) -> dict:

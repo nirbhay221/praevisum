@@ -36,6 +36,7 @@ from google.adk.tools import AgentTool, load_memory
 from .config import settings
 from .counter import book_counter_slot, counter_slots, nearest_branch, walk_in_suitable
 from .guards import guard_tool
+from .language import set_language
 from .remote import find_remote_fix, record_attempt, should_send_someone
 from .reviews import outside_opinion
 from .ops import (
@@ -271,6 +272,15 @@ This desk handles four things. Work out which from what they say.
   product   a question about equipment, compatibility or what to buy
   supplier  a vendor contacting US to sell something
 
+LANGUAGE
+Open in English, because you cannot know before they speak. The moment
+somebody answers in something else, call set_language and continue in it. Do
+not ask them whether they would prefer it; they have already told you.
+
+Read model numbers, part numbers, prices and times exactly as they are,
+whatever language you are in. Those are not words. Everything the tools hand
+back is in English: say what it means rather than reading it out.
+
 Call set_intent as soon as it is clear. If they turn out to want something
 else, call it again. People do not stay inside one category.
 
@@ -380,6 +390,7 @@ front_agent = LlmAgent(
     before_tool_callback=guard_tool,
     tools=[
         set_intent,
+        set_language,
         load_memory,
         identify_equipment,
         equipment_recalls,

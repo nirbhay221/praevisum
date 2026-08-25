@@ -262,13 +262,10 @@ def book_counter_slot(branch_id: str, account_id: str, slot_at: str,
              when.isoformat(timespec="minutes"), reason or None,
              datetime.now().isoformat(timespec="seconds")))
 
-    try:
-        from . import events
-        events.publish(dealer_id, "counter",
-                       text=f"walk-in booked at {b['label']} "
-                            f"{when.strftime('%A %H:%M')}")
-    except Exception:
-        pass
+    from . import events
+    events.publish(dealer_id, "counter",
+                   text=f"walk-in booked at {b['label']} "
+                        f"{when.strftime('%A %H:%M')}")
 
     return {
         "ok": True, "booking_id": bid, "branch": b["label"],

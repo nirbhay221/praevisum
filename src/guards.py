@@ -43,6 +43,16 @@ def guard_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
     Returning a dict short-circuits the tool: the model receives that dict as
     the tool result, so the refusal is legible to it rather than mysterious.
     """
+    # Carry the caller's language from session state into somewhere the
+    # retrieval can read it. This callback already runs before every tool and
+    # already holds the state, so nothing else has to learn about languages.
+    try:
+        from .language import SPEAKING
+
+        SPEAKING.set((tool_context.state.get("language") or "").strip().lower())
+    except Exception:
+        pass
+
     name = getattr(tool, "name", "") or getattr(tool, "__name__", "")
     allowed = GATED.get(name)
     if allowed is None:

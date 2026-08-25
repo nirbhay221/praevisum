@@ -1,0 +1,13 @@
+.venv/
+.git/
+__pycache__/
+*.pyc
+*.db
+*.db-wal
+*.db-shm
+.env
+.stream_secret
+tests/
+data/
+recordings/
+assets/hold_music.wav

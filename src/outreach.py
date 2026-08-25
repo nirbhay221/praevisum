@@ -387,12 +387,9 @@ def queue_outreach(candidates: list[dict], dealer_id: str = "D-REF") -> dict:
     # is published that a rollback would have undone. The sweep decides at
     # midnight; the calls happen in business hours, which is a queue whether
     # or not it is called one.
-    try:
-        from . import bus
-        for q in queued:
-            bus.send_outreach(q, dealer_id)
-    except Exception:
-        pass
+    from . import bus
+    for q in queued:
+        bus.send_outreach(q, dealer_id)
 
     return {
         "ok": True, "queued": queued, "blocked": blocked,
@@ -511,11 +508,8 @@ def take_next(dealer_id: str = "D-REF", at: datetime | None = None) -> dict:
                       "right thing regardless.",
     }
 
-    try:
-        from . import bus
-        bus.send_outreach(call, dealer_id)
-    except Exception:
-        pass
+    from . import bus
+    bus.send_outreach(call, dealer_id)
 
     return {"ok": True, "call": call}
 

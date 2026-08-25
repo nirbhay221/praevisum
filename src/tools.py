@@ -20,7 +20,7 @@ from datetime import datetime
 
 from google.adk.tools import ToolContext
 
-from . import db
+from . import db, dispatch
 from .domain.geo import drive_minutes, miles
 from .memory import index_for
 
@@ -565,12 +565,9 @@ def open_work_order(asset_id: str, reported_symptom: str,
              who.get("contact_id"), reported_symptom, error_code or None,
              "open", datetime.now().isoformat(timespec="seconds"), dealer))
 
-    try:
-        from . import events
-        events.publish(dealer, "work_order",
-                       text=f"{wo} opened: {reported_symptom[:60]}")
-    except Exception:
-        pass
+    from . import events
+    events.publish(dealer, "work_order",
+                   text=f"{wo} opened: {reported_symptom[:60]}")
     return {"ok": True, "work_order_id": wo, "asset_id": asset_id}
 
 
@@ -653,13 +650,10 @@ def promise_slot(work_order_id: str, technician_id: str, starts_at: str,
                 "advice": "Nothing was committed. Tell them the truth about "
                           "which part is short and offer the next honest option."}
 
-    try:
-        from . import events
-        events.publish(dealer, "promise",
-                       text=f"{work_order_id} promised {start.strftime('%A %H:%M')}, "
-                            f"{len(held)} part(s) held")
-    except Exception:
-        pass
+    from . import events
+    events.publish(dealer, "promise",
+                   text=f"{work_order_id} promised {start.strftime('%A %H:%M')}, "
+                        f"{len(held)} part(s) held")
     return {"ok": True, "work_order_id": work_order_id, "visit_id": visit,
             "window": start.strftime("%A %d %B, %H:%M"),
             "technician_id": technician_id,
@@ -730,17 +724,18 @@ def build_briefing(work_order_id: str, tool_context: ToolContext) -> dict:
                         for p in decision.get("left_behind", [])],
         "likely_causes": decision.get("distribution", [])[:3],
         "reasoning": decision.get("reasoning"),
+        # The one thing this whole project opens with: a part that was worked
+        # out, held, and then never confirmed onto the van. A reservation is a
+        # claim on stock, not a fact about a vehicle.
+        "confirm_parts": dispatch.ask_line(row["visit_id"]),
         "prior_visits_this_machine": history.get("this_unit", []),
         "same_model_elsewhere": history.get("same_model_elsewhere", []),
     }
 
-    try:
-        from . import events
-        parts = ", ".join(p["name"] for p in brief["load_these"]) or "nothing to load"
-        events.publish(dealer, "briefing",
-                       text=f"{row['tech_name'] or 'technician'}: take {parts}")
-    except Exception:
-        pass
+    from . import events
+    parts = ", ".join(p["name"] for p in brief["load_these"]) or "nothing to load"
+    events.publish(dealer, "briefing",
+                   text=f"{row['tech_name'] or 'technician'}: take {parts}")
 
     # Hand it to whatever delivers messages. Until this existed the briefing
     # was computed in full and then returned to a caller who never sent it,
@@ -749,12 +744,9 @@ def build_briefing(work_order_id: str, tool_context: ToolContext) -> dict:
     # Published rather than sent inline because the customer is still on the
     # line at this point, and an SMS API call on the conversational path is
     # dead air the caller hears. Off unless PRAEVISUM_BUS=1.
-    try:
-        from . import bus
-        sent = bus.send_briefing(brief, dealer)
-        if sent.get("published"):
-            brief["dispatched"] = sent["message_id"]
-    except Exception:
-        pass
+    from . import bus
+    sent = bus.send_briefing(brief, dealer)
+    if sent.get("published"):
+        brief["dispatched"] = sent["message_id"]
 
     return brief

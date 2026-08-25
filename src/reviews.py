@@ -74,7 +74,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
 
-from . import db
+from . import db, trace
 from .config import settings  # noqa: F401  (loads .env, so a key there is seen)
 
 BESTBUY_API = "https://api.bestbuy.com/v1/products"
@@ -396,6 +396,26 @@ def _family_of(manufacturer: str, model: str) -> str:
     return (row["family"] if row else "") or ""
 
 
+def _family_dealer(manufacturer: str) -> str:
+    """Whose feed this belongs on.
+
+    A make can sit under either dealer, so it is resolved through the assets
+    rather than assumed. Defaults to the refrigeration book, which is where an
+    unrecognised make would be asked about anyway.
+    """
+    try:
+        with db.connect() as c:
+            row = c.execute(
+                """SELECT ac.dealer_id FROM assets a
+                   JOIN sites s ON s.id = a.site_id
+                   JOIN accounts ac ON ac.id = s.account_id
+                   WHERE a.manufacturer = ? AND ac.dealer_id IS NOT NULL
+                   LIMIT 1""", (manufacturer,)).fetchone()
+        return row["dealer_id"] if row else "D-REF"
+    except Exception:
+        return "D-REF"
+
+
 def _lookup_shopping(manufacturer: str, model: str, family: str) -> tuple:
     """Model level first, then the make within its category.
 
@@ -482,9 +502,18 @@ def outside_opinion(manufacturer: str, model_number: str = "",
                          and p.get("customerReviewAverage")]
                 if rated:
                     best = max(rated, key=lambda p: p["customerReviewCount"])
+                    # The level is recorded rather than inferred later. This
+                    # path never stored one, and relied on a fallback that
+                    # guessed it from the model number after the fact, so a
+                    # brand-wide rating could be quoted as though it were the
+                    # caller's machine. Best Buy is queried by make AND model,
+                    # so a searchable model that came back rated is a model
+                    # level answer and anything else is the make.
                     _store(manufacturer, model_number, src,
                            best["customerReviewAverage"],
-                           best["customerReviewCount"], best.get("name"), best)
+                           best["customerReviewCount"], best.get("name"),
+                           {"level": "model" if _searchable_model(model_number)
+                            else "brand", "product": best})
                 else:
                     _store(manufacturer, model_number, src, None, 0, None, None)
         except Exception:
@@ -494,22 +523,46 @@ def outside_opinion(manufacturer: str, model_number: str = "",
         hit = _cached(manufacturer, model_number, src)
 
     if hit is None or not hit["rating"]:
-        return {"available": False,
+        miss = {"available": False,
                 "manufacturer": manufacturer, "model": model_number,
                 "why": "nothing found for that machine",
                 "say": "Say plainly that this is not a machine consumers review, "
                        "and that our own service record is the only evidence "
                        "there is on it."}
+        trace.outside_opinion(_family_dealer(manufacturer), manufacturer, miss)
+        return miss
 
     if (hit["review_count"] or 0) < MIN_REVIEWS:
         return {"available": False,
                 "why": f"only {hit['review_count']} reviews, too few to quote",
                 "say": "Too thin to be worth repeating. Use our own record."}
 
+    # The stored level, or nothing. Deliberately NOT a fall back to the level
+    # computed a moment ago from the model number.
+    #
+    # `level` decides which sentence the agent is given: at model level it is
+    # a rating for THEIR machine, at brand level it is the make's whole range
+    # and must be labelled as such. Those are different claims about the world,
+    # and quietly substituting a guess for the recorded one is how a brand
+    # average gets quoted as though it were the unit in front of them.
+    #
+    # A rating whose level cannot be established is a rating that cannot be
+    # quoted safely, so it is refused instead.
     try:
-        level = (json.loads(hit["raw"] or "{}") or {}).get("level") or level
-    except Exception:
-        pass
+        stored = (json.loads(hit["raw"] or "{}") or {}).get("level")
+    except Exception as e:
+        print(f"[reviews] unreadable level on {manufacturer} {model_number}: "
+              f"{type(e).__name__}: {e}", flush=True)
+        stored = None
+
+    if not stored:
+        return {"available": False,
+                "manufacturer": manufacturer, "model": model_number,
+                "why": "we hold a rating but not what it is a rating OF",
+                "say": "Do not quote it. A rating for a make and a rating for "
+                       "their machine are different claims, and we cannot tell "
+                       "which this is. Answer from our own record."}
+    level = stored
 
     never_blend = ("This is what the market says, and it is a SEPARATE fact "
                    "from what we have seen. Never average the two into one "
@@ -521,7 +574,7 @@ def outside_opinion(manufacturer: str, model_number: str = "",
                        "machine. Say the number and the sample size in the "
                        "same breath, never the rating alone. " + never_blend)
 
-    return {
+    out = {
         "available": True,
         "source": "Google Shopping" if src == "google_shopping" else "Best Buy",
         "level": level,
@@ -535,3 +588,5 @@ def outside_opinion(manufacturer: str, model_number: str = "",
             "so in those words: a good brand average is not evidence about the "
             "unit in front of them. " + never_blend),
     }
+    trace.outside_opinion(_family_dealer(manufacturer), manufacturer, out)
+    return out

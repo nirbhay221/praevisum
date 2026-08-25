@@ -137,6 +137,19 @@ def _complaint_demand(dealer_id: str) -> dict:
     return expected
 
 
+def _service_level(families: str) -> float:
+    """The margin this part is held at, decided by what its absence costs.
+
+    Reads the part's own fitment families rather than a flag somebody set, so
+    a part that fits both a walk-in and a countertop unit is held at the
+    critical level. Being generous in that direction is the cheap mistake: the
+    expensive one is a restaurant losing its stock because we saved four
+    dollars of carrying cost.
+    """
+    fams = {f.strip().lower() for f in (families or "").split(",") if f.strip()}
+    return SERVICE_Z_CRITICAL if fams & CRITICAL_FAMILIES else SERVICE_Z
+
+
 def restock_advice(dealer_id: str = "D-REF", horizon_days: int = 365) -> dict:
     """What to reorder, how many, and what it costs to be wrong.
 
@@ -240,7 +253,16 @@ def restock_advice(dealer_id: str = "D-REF", horizon_days: int = 365) -> dict:
         # Poisson: for count data the variance equals the mean, so the spread
         # is the square root. Cheap, standard, and honest about the fact that
         # demand is lumpy rather than smooth.
-        safety = SERVICE_Z * math.sqrt(during_exposure) if during_exposure > 0 else 0
+        # How much margin depends on what being short actually costs THEM.
+        #
+        # One service level for every part was the version before this. The
+        # spare-parts literature separates critical spares, where a stockout
+        # causes downtime, from consumables where it causes inconvenience, and
+        # this dealer has the sharpest version of that split available: a
+        # walk-in going down spoils thousands of dollars of stock and can shut
+        # a kitchen, and a printer going down does not.
+        z = _service_level(p["families"])
+        safety = z * math.sqrt(during_exposure) if during_exposure > 0 else 0
         reorder_point = during_exposure + safety
         target = reorder_point + per_day * REVIEW_DAYS
 

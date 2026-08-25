@@ -52,7 +52,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from . import db
+from . import db, trace
 from .thresholds import VISIT_MINUTES  # noqa: F401
 
 # What a wasted trip costs, shared with the van loading so the two halves of
@@ -219,16 +219,18 @@ def should_send_someone(asset_id: str, symptom: str,
     confident = bool(dist) and dist[0]["probability"] >= 0.5
 
     if not fix["found"]:
-        return {
+        out = {
             "send": True,
             "confidence_in_cause": round(dist[0]["probability"], 2) if dist else 0,
             "why": "nothing documented covers this, so somebody goes and looks",
             "cost_if_we_are_wrong": TRUCK_ROLL,
             "say": "Book the visit. Do not offer a fix we cannot source.",
         }
+        trace.send_decision(dealer_id, out)
+        return out
 
     # There is a documented, proven procedure. Offering it is still a choice.
-    return {
+    out = {
         "send": "offer_first",
         "confidence_in_cause": round(dist[0]["probability"], 2) if dist else 0,
         "likely_cause": dist[0]["cause"] if dist else None,
@@ -244,6 +246,8 @@ def should_send_someone(asset_id: str, symptom: str,
                        "visit as normal. A failed attempt is not a reason to "
                        "keep them on the phone.",
     }
+    trace.send_decision(dealer_id, out)
+    return out
 
 
 def record_attempt(fix_id: str, outcome: str, asset_id: str = "",

@@ -111,7 +111,8 @@ def test_a_customer_never_reaches_the_job_closer(dbfile, monkeypatch):
     monkeypatch.setattr(
         "src.textback.close_by_text",
         lambda *a, **k: pytest.fail("a customer reached close_by_text"))
-    monkeypatch.setattr("src.desk._converse", lambda key, text: "advice")
+    monkeypatch.setattr("src.desk._converse",
+                        lambda key, text, *a, **k: "advice")
 
     assert desk.answer("+15005550999", "what freezer should I buy") == "advice"
 
@@ -127,7 +128,7 @@ def test_each_person_gets_their_own_conversation(dbfile, monkeypatch):
 
     keys = []
     monkeypatch.setattr("src.desk._converse",
-                        lambda key, text: keys.append(key) or "ok")
+                        lambda key, text, *a, **k: keys.append(key) or "ok")
 
     desk.answer("+15005550999", "hello", channel="whatsapp")
     desk.answer("+15005550999", "hello", channel="telegram")
@@ -152,7 +153,8 @@ def test_the_desk_works_when_called_from_inside_an_event_loop(dbfile, monkeypatc
     from src import main
 
     monkeypatch.setenv("PRAEVISUM_OPEN_WHATSAPP", "1")
-    monkeypatch.setattr("src.desk._converse", lambda key, text: "the real answer")
+    monkeypatch.setattr("src.desk._converse",
+                        lambda key, text, *a, **k: "the real answer")
 
     class _Req:
         headers: dict = {}
@@ -259,3 +261,143 @@ def test_a_telegram_caption_is_read_as_the_message(dbfile, monkeypatch):
 
     assert seen["text"] == "not holding temperature since last night"
     assert seen["media"] == 1
+
+
+# Everything the phone line establishes before the caller speaks, which the
+# text channels did not do at all. Not a cosmetic gap: it was a tenancy leak,
+# an anonymous customer, and a conversation invisible to every measurement.
+
+
+def test_a_customer_we_know_is_recognised_on_a_text_channel(dbfile, monkeypatch):
+    """The phone greets them by name and knows their machines. A message
+    thread greeted a customer of eight years as a stranger."""
+    from src import db, desk
+
+    with db.connect() as c:
+        row = c.execute(
+            """SELECT p.e164, ct.name FROM phones p
+               JOIN contacts ct ON ct.id = p.contact_id LIMIT 1""").fetchone()
+    if row is None:
+        pytest.skip("fixture has no contact with a phone")
+
+    seen = {}
+    monkeypatch.setattr("src.desk._converse",
+                        lambda key, text, who=None, dealer="", call_id="":
+                        seen.update(who=who, dealer=dealer) or "ok")
+
+    desk.answer(row["e164"], "the freezer is warm", channel="whatsapp")
+    assert seen["who"]["known"] is True, "a known customer arrived as a stranger"
+    assert seen["who"]["contact_name"] == row["name"]
+
+
+def test_a_text_customer_reaches_their_own_dealer(dbfile, monkeypatch):
+    """The leak. `dealer_id` was the literal string "D-REF", so an IT customer
+    messaging in was answered out of the refrigeration book."""
+    from src import db, desk
+
+    with db.connect() as c:
+        row = c.execute(
+            """SELECT p.e164 FROM phones p
+               JOIN contacts ct ON ct.id = p.contact_id
+               JOIN accounts a ON a.id = ct.account_id
+               WHERE a.dealer_id = 'D-IT' LIMIT 1""").fetchone()
+    if row is None:
+        pytest.skip("fixture has no IT customer with a phone")
+
+    seen = {}
+    monkeypatch.setattr("src.desk._converse",
+                        lambda key, text, who=None, dealer="", call_id="":
+                        seen.update(dealer=dealer) or "ok")
+
+    desk.answer(row["e164"], "the laptop will not charge", channel="whatsapp")
+    assert seen["dealer"] == "D-IT", \
+        "an IT customer was answered out of the refrigeration book"
+
+
+def test_a_message_thread_gets_a_call_row_like_a_call_does(dbfile, monkeypatch):
+    """Without one, review.py cannot settle it and patterns.py cannot see it,
+    so the desk measures only half of what it does."""
+    from src import db, desk
+
+    monkeypatch.setattr("src.desk._converse",
+                        lambda key, text, *a, **k: "ok")
+    desk.answer("+15005550777", "the walk-in is warm", channel="whatsapp")
+
+    with db.connect() as c:
+        row = c.execute(
+            "SELECT id, from_e164 FROM calls WHERE from_e164='+15005550777'"
+        ).fetchone()
+    assert row is not None, "a message thread left no record"
+    assert row["id"].startswith("MSG-"), "a message is not a phone call"
+
+
+def test_a_continuing_thread_stays_one_conversation(dbfile, monkeypatch):
+    """Three messages about one freezer is one conversation, not three."""
+    from src import db, desk
+
+    monkeypatch.setattr("src.desk._converse", lambda key, text, *a, **k: "ok")
+    for msg in ("the walk-in is warm", "it started last night", "can you come"):
+        desk.answer("+15005550888", msg, channel="whatsapp")
+
+    with db.connect() as c:
+        n = c.execute(
+            "SELECT COUNT(*) FROM calls WHERE from_e164='+15005550888'"
+        ).fetchone()[0]
+    assert n == 1, f"one thread became {n} conversations"
+
+
+def test_a_thread_that_went_quiet_starts_a_new_conversation(dbfile, monkeypatch):
+    """Somebody messaging about a freezer on Tuesday and a fryer on Friday is
+    not continuing anything, and stapling them together would have the desk
+    answer the second with the first one's context."""
+    from datetime import datetime, timedelta
+
+    from src import db, desk
+
+    old = (datetime.now() - timedelta(hours=desk.CONVERSATION_HOURS + 1))
+    with db.txn() as c:
+        c.execute(
+            """INSERT INTO calls (id,from_e164,started_at,dealer_id)
+               VALUES ('MSG-OLD','+15005550999',?,'D-REF')""",
+            (old.isoformat(timespec="seconds"),))
+
+    monkeypatch.setattr("src.desk._converse", lambda key, text, *a, **k: "ok")
+    desk.answer("+15005550999", "different machine entirely", channel="whatsapp")
+
+    with db.connect() as c:
+        n = c.execute(
+            "SELECT COUNT(*) FROM calls WHERE from_e164='+15005550999'"
+        ).fetchone()[0]
+    assert n == 2, "a stale thread was resumed"
+
+
+def test_a_channel_without_a_phone_number_resolves_to_nobody(dbfile, monkeypatch):
+    """Telegram gives a chat id. Guessing who that is would be worse than
+    knowing we do not know."""
+    from src import desk
+
+    seen = {}
+    monkeypatch.setattr("src.desk._converse",
+                        lambda key, text, who=None, dealer="", call_id="":
+                        seen.update(who=who) or "ok")
+
+    desk.answer("telegram:12345", "my freezer is warm", channel="telegram")
+    assert seen["who"]["known"] is False
+    assert "does not carry a phone number" in seen["who"]["why"]
+
+
+def test_the_agent_session_carries_the_same_state_the_phone_builds(dbfile):
+    """A work order opened from a message had no contact on it, so the
+    after-visit check could never find a number to ask."""
+    import inspect
+
+    from src import desk
+
+    src = inspect.getsource(desk._converse)
+    for key in ('"dealer_id": dealer', '"caller": who', '"call_id": call_id'):
+        assert key in src, f"the text session is missing {key}"
+
+    # A default argument is a fallback and is fine. A literal inside the
+    # session dict is the bug: it sends every text customer to one dealer's
+    # book regardless of whose customer they are.
+    assert '"dealer_id": "D-REF"' not in src, "the dealer is hardcoded again"

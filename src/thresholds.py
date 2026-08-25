@@ -36,6 +36,29 @@ REVIEW_DAYS = 30
 # that mostly sits still, which is the cost this exists to weigh.
 SERVICE_Z = 1.65
 
+# And 2.33 is 99%, one stockout in a hundred, for parts where being short does
+# not merely waste a trip.
+#
+# One service level for every part was the version before this, and it is the
+# wrong shape. The spare-parts literature separates critical spares, where a
+# stockout causes downtime, from consumables where it causes inconvenience,
+# and puts them at 99% and 95% respectively.
+#
+# This dealer has the sharpest possible version of that distinction and it is
+# already in the README: a walk-in cooler failure costs the customer $2,000 to
+# $10,000 of spoiled stock and can shut the kitchen. A printer being down does
+# not. Holding the same margin on both means either over-stocking the printer
+# parts or under-stocking the ones that ruin somebody's week.
+SERVICE_Z_CRITICAL = 2.33
+
+# Which families are critical. Not a judgment about the machine, a statement
+# about what the CUSTOMER loses while it is down: product spoiling, or a
+# kitchen that cannot open.
+CRITICAL_FAMILIES = {
+    "walk-in cooler", "walk-in freezer", "reach-in freezer", "reach-in cooler",
+    "display cooler", "ice machine", "blast chiller", "prep table",
+}
+
 # ---- the complaint signal ------------------------------------------------
 # How long a complaint stays predictive. Measured on this book, a customer
 # raises the grumble about 41 days before the repair closes.

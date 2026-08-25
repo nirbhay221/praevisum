@@ -97,6 +97,13 @@ def resolve(e164: str) -> dict:
         "single_site": len(sites) == 1,
         "single_asset": len(assets) == 1,
     }
+    # How the last few conversations with them actually went, as against what
+    # they own. `took_two_trips` below already proves one fact read from the
+    # database can change how a call opens; this is the same shape.
+    from .knowing import about
+
+    out["habits"] = about(e164, out)
+
     if last:
         out["last_job"] = {
             "work_order": last["id"],

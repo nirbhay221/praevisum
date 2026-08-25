@@ -40,7 +40,7 @@ from __future__ import annotations
 import math
 from collections import Counter, defaultdict
 
-from . import db
+from . import db, trace
 from .memory import index_for
 
 # Aberdeen: a failed first visit means 2.7 visits and 34% higher cost.
@@ -115,7 +115,7 @@ def _models_sharing(profile: tuple) -> set:
 
 def _fault_distribution(dealer_id: str, symptom: str, manufacturer: str = "",
                         family: str = "", model: str = "",
-                        limit: int = 25) -> list[dict]:
+                        limit: int = 25, language: str = "") -> list[dict]:
     """What this symptom has actually turned out to be, as a distribution.
 
     Weighted by retrieval score rather than counted flat, because a repair that
@@ -127,6 +127,26 @@ def _fault_distribution(dealer_id: str, symptom: str, manufacturer: str = "",
     sharing a component profile. That last tier is what lets the desk say
     something useful about a machine it has never been called out to.
     """
+    # The one boundary where a caller's words meet an English corpus.
+    #
+    # 670 repairs written by technicians in English, and one in five US
+    # restaurant workers speaks English as a second language. A caller saying
+    # "el congelador no enfria bien desde anoche" retrieves nothing, and the
+    # desk then falls back to having no history, silently, which is the exact
+    # condition it exists to avoid.
+    #
+    # Only the search string is normalised. What they actually said is still
+    # what gets recorded and quoted back.
+    if not language:
+        from .language import SPEAKING
+
+        language = SPEAKING.get()
+
+    if language:
+        from .language import for_retrieval
+
+        symptom = for_retrieval(symptom, language)["searchable"]
+
     hits = index_for(dealer_id).search(symptom, limit=limit)
     if not hits:
         return []
@@ -223,6 +243,7 @@ def what_to_load(dealer_id: str, asset_id: str, symptom: str,
     dist = _fault_distribution(dealer_id, symptom, asset["manufacturer"],
                                asset["family"], asset["model_number"])
     if not dist:
+        trace.fault_distribution(dealer_id, symptom, [])
         return {"ok": True, "asset": asset_id, "confident": False,
                 "distribution": [], "load": [], "left_behind": [],
                 "reasoning": "Nothing in our own history matches this "
@@ -292,6 +313,13 @@ def what_to_load(dealer_id: str, asset_id: str, symptom: str,
         + f". Loading {len(load)} part(s) covers roughly "
           f"{int(min(covered,1.0)*100)}% of what it is likely to be."
     )
+
+    # The arithmetic, onto the live feed, while the caller is still talking.
+    # Publishing only, never computing: a trace line cannot disagree with the
+    # decision it describes, and turning the feed off cannot change what the
+    # desk does.
+    trace.fault_distribution(dealer_id, symptom, dist)
+    trace.van_load(dealer_id, load, left)
 
     return {
         "ok": True,

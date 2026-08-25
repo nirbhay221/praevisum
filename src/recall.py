@@ -47,12 +47,74 @@ def _entry(text: str, author: str, when: str, **meta: Any) -> MemoryEntry:
     )
 
 
+# How many of a caller's own past sentences are worth putting in front of the
+# agent. More than this and the opening stops being context and becomes a
+# transcript the model reads back out loud.
+REMEMBER = 4
+
+
+def _remember(phone: str, said: str, dealer: str = "", from_call: str = "") -> None:
+    """Write down what a caller told us. Never raises.
+
+    Their words rather than a summary, for the same reason the repair corpus
+    keeps a technician's phrasing: it is how they will describe the same thing
+    next time, and it is what retrieval is searched with.
+    """
+    said = (said or "").strip()
+    if not phone or not said:
+        return
+    try:
+        with db.txn() as c:
+            c.execute(
+                """INSERT INTO caller_memory (phone,dealer_id,from_call,said,at)
+                   VALUES (?,?,?,?,?)""",
+                (phone, dealer or None, from_call or None, said[:600],
+                 datetime.now().isoformat(timespec="seconds")))
+    except Exception as e:
+        # Losing a memory must not end a call, and it must not be silent
+        # either. A quiet failure here is how the loop appears to close for a
+        # second time without actually closing.
+        print(f"[recall] could not remember what {phone} said: "
+              f"{type(e).__name__}: {e}", flush=True)
+
+
+def _remembered(phone: str) -> list[MemoryEntry]:
+    """What this caller has told us before, most recent last."""
+    try:
+        with db.connect() as c:
+            rows = c.execute(
+                # id breaks the tie, because `at` has second resolution and
+                # several things get remembered inside one call. Ordering on
+                # the timestamp alone returned them in arbitrary order, so the
+                # agent could be handed the first thing a caller said as
+                # though it were the most recent.
+                """SELECT said, at FROM caller_memory
+                   WHERE phone = ? ORDER BY at DESC, id DESC LIMIT ?""",
+                (phone, REMEMBER)).fetchall()
+    except Exception as e:
+        print(f"[recall] could not read what {phone} told us: "
+              f"{type(e).__name__}: {e}", flush=True)
+        return []
+
+    return [_entry("On a previous call they said: " + r["said"],
+                   author="caller", when=r["at"], kind="personal")
+            for r in reversed(rows)]
+
+
 class PraevisumMemory(BaseMemoryService):
     """Institutional memory first, personal memory second."""
 
     def __init__(self) -> None:
-        # caller phone -> list of things they have said to us before
-        self._said: dict[str, list[MemoryEntry]] = {}
+        # Nothing is held here any more.
+        #
+        # This was `self._said: dict[str, list[MemoryEntry]]`, and the class
+        # docstring above claimed a conversation today was retrievable
+        # tomorrow. It was retrievable until the next restart, which on this
+        # deployment means the next deploy, so the claim had never been true.
+        #
+        # The institutional half was always in the database. The personal half
+        # is now too, which is the only reason the sentence above is honest.
+        pass
 
     @staticmethod
     def _dealer_for(user_id: str) -> str:
@@ -71,8 +133,18 @@ class PraevisumMemory(BaseMemoryService):
                        ORDER BY started_at DESC LIMIT 1""", (user_id,)).fetchone()
                 if row:
                     return row["dealer_id"]
-        except Exception:
-            pass
+        except Exception as e:
+            # This one is NOT harmless and must never be silent.
+            #
+            # Falling back to D-REF on a database error means an IT caller can
+            # be answered out of the refrigeration corpus. That is the exact
+            # leak test_isolation exists to prevent, arriving through the back
+            # door as a swallowed exception rather than a bad query.
+            #
+            # The fallback stays, because a caller with no answer is worse than
+            # a caller with the wrong dealer's default. But it says so.
+            print(f"[recall] could not resolve the dealer for {user_id}, "
+                  f"falling back to D-REF: {type(e).__name__}: {e}", flush=True)
         return "D-REF"
 
     # ---- reading ------------------------------------------------------
@@ -103,8 +175,9 @@ class PraevisumMemory(BaseMemoryService):
                 score=hit.score,
             ))
 
-        # 2. what this particular caller has told us before
-        out.extend(self._said.get(user_id, [])[-4:])
+        # 2. what this particular caller has told us before, read back out of
+        # the database rather than a dict that empties on restart
+        out.extend(_remembered(user_id))
 
         return SearchMemoryResponse(memories=out)
 
@@ -127,18 +200,18 @@ class PraevisumMemory(BaseMemoryService):
         if not spoken:
             return
 
-        when = datetime.now().isoformat(timespec="seconds")
-        self._said.setdefault(phone, []).append(_entry(
-            "On a previous call they said: " + " ".join(spoken)[:600],
-            author="caller",
-            when=when,
-            kind="personal",
-        ))
+        _remember(phone, " ".join(spoken)[:600],
+                  dealer=self._dealer_for(phone),
+                  from_call=str(session.state.get("call_id") or ""))
 
     async def add_memory(self, *, app_name: str, user_id: str,
                          memories: Sequence[MemoryEntry],
                          custom_metadata: Mapping[str, object] | None = None) -> None:
-        self._said.setdefault(user_id, []).extend(memories)
+        for m in memories:
+            for part in (getattr(m.content, "parts", None) or []):
+                if getattr(part, "text", None):
+                    _remember(user_id, part.text,
+                              dealer=self._dealer_for(user_id))
 
     async def add_events_to_memory(self, *, app_name: str, user_id: str,
                                    events: Sequence[Event],
@@ -148,11 +221,9 @@ class PraevisumMemory(BaseMemoryService):
             content = getattr(e, "content", None)
             for p in (getattr(content, "parts", None) or []):
                 if getattr(p, "text", None):
-                    self._said.setdefault(user_id, []).append(
-                        _entry(p.text, author=e.author or "unknown",
-                               when=datetime.now().isoformat(timespec="seconds"),
-                               kind="personal")
-                    )
+                    _remember(user_id, p.text,
+                              dealer=self._dealer_for(user_id),
+                              from_call=session_id or "")
 
 
 MEMORY = PraevisumMemory()
