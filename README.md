@@ -12,7 +12,13 @@
 [![tests](https://img.shields.io/badge/tests-1003-8E5410?style=flat-square)](tests/)
 [![built with](https://img.shields.io/badge/built_with-ADK_2.7-9C2F28?style=flat-square)](https://google.github.io/adk-docs/)
 
-**[Try the console](https://twiliotestduck.duckdns.org/console)** &middot;
+### Ring it: **+1 857 361 7165**
+
+Ask for a projector, a chair, a laptop or a freezer. Or say one of your
+machines has stopped working. It is the same number either way, and it answers
+as whichever of the four businesses sells what you asked for.
+
+**[The owner's console](https://twiliotestduck.duckdns.org/console)** &middot;
 **[The architecture](https://claude.ai/code/artifact/3c54a6d2-de63-400f-9d78-60cae3e540b9)** &middot;
 **[As a PDF](docs/architecture.pdf)**
 
