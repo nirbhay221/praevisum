@@ -17,6 +17,8 @@ Built for the **All Things Agentic Hackathon**.
 &middot; [as a PDF](docs/architecture.pdf)
 &middot; [written out](docs/architecture.md)
 
+[![System architecture](docs/architecture.png)](https://claude.ai/code/artifact/3c54a6d2-de63-400f-9d78-60cae3e540b9)
+
 ---
 
 ### Notices
