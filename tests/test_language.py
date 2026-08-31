@@ -281,7 +281,11 @@ def test_switching_is_remembered_for_next_time(dbfile):
         pytest.skip("fixture has no contact")
 
     ctx = SimpleNamespace(state={"caller": {"contact_id": ct["id"]}})
-    out = language.set_language("es", ctx)
+    # `heard` carries the caller's own words, and is now required.
+    # A live call turned itself Arabic off one mis-transcribed token,
+    # so a switch has to say what it heard before it is allowed.
+    out = language.set_language(
+        "es", ctx, heard="buenos dias, necesito un tecnico")
     assert out["ok"] is True
     assert ctx.state["language"] == "es"
 
@@ -299,9 +303,25 @@ def test_a_language_nobody_thought_about_is_refused(dbfile):
     from src import language
 
     ctx = SimpleNamespace(state={})
+
+    # NOTHING WAS HEARD, so the desk decided this on its own. It is refused,
+    # and the refusal is not read out: the caller has said nothing about
+    # languages and has nothing to be apologised to about. Heard twice on one
+    # live call, where "The tax" transcribed as Arabic script and "am A Sofa"
+    # as German, and the desk announced "I'm sorry, I don't speak that
+    # language" to somebody asking about a sofa in English.
     out = language.set_language("xx", ctx)
     assert out["ok"] is False
-    assert "do not pretend to switch" in out["say"]
+    assert "SAY NOTHING ABOUT LANGUAGES" in out["say"]
+    assert "English" in out["say"], "it must still carry on in English"
+
+    # WHEN THEY ACTUALLY ASKED, the honest answer is the real list, and the
+    # desk must not shorten it from memory.
+    asked = language.set_language("xx", SimpleNamespace(state={}),
+                                  heard="do you speak Klingon at all")
+    assert asked["ok"] is False
+    assert "do not pretend to switch" in asked["say"]
+    assert len(asked["available"]) >= 5
     assert "language" not in ctx.state
 
 
@@ -336,6 +356,11 @@ def test_the_switch_instruction_protects_identifiers(dbfile):
 
     from src import language
 
-    out = language.set_language("es", SimpleNamespace(state={}))
+    # `heard` carries the caller's own words, and is now required.
+    # A live call turned itself Arabic off one mis-transcribed token,
+    # so a switch has to say what it heard before it is allowed.
+    out = language.set_language(
+        "es", SimpleNamespace(state={}),
+        heard="hola, quiero saber el precio del modelo")
     assert "exactly as they are" in out["say"]
     assert "not words" in out["say"]

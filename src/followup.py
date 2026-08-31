@@ -117,8 +117,22 @@ def _queue(kind: str, phone: str, *, dealer_id: str = "D-REF",
                  (datetime.now() + delay).isoformat(timespec="seconds"),
                  datetime.now().isoformat(timespec="seconds")))
     except Exception as e:
-        if "unique" in str(e).lower() or "constraint" in str(e).lower():
+        # ONLY A UNIQUE VIOLATION MEANS "ALREADY QUEUED".
+        #
+        # This matched any error containing the word "constraint", and
+        # "CHECK constraint failed: kind IN (...)" contains it. So when a new
+        # kind of follow-up was added without extending that CHECK, every
+        # insert failed and every failure was reported as a row that already
+        # existed. The console showed nothing waiting, the customer was never
+        # asked, and the code said it was fine.
+        #
+        # A duplicate and a rejected row are different outcomes and must not
+        # share a branch.
+        text = str(e).lower()
+        if "unique" in text:
             return {"ok": True, "already_queued": True}
+        print(f"[followup] could not queue a {kind} for {phone}: "
+              f"{type(e).__name__}: {e}", flush=True)
         raise
     return {"ok": True, "id": fid, "kind": kind}
 
@@ -129,6 +143,23 @@ def _opted_out(phone: str) -> bool:
     Read across accounts rather than for one, because somebody who opted out
     said it about being contacted, not about a particular account record.
     """
+    # THE DO-NOT-CALL LIST FIRST, and this was the hole. `take_us_off_your_list`
+    # writes to that list and does NOT touch outreach_consent, while this only
+    # read outreach_consent. So somebody who said "never contact me again" had
+    # their CALLS stopped and kept receiving TEXTS, which is not what they
+    # asked for and not what they would describe to a regulator.
+    try:
+        from . import linetype
+
+        if linetype.on_our_do_not_call(phone).get("listed"):
+            return True
+    except Exception as e:
+        # Fail closed. Not knowing whether they opted out is not a reason to
+        # message them.
+        print(f"[followup] could not read the do-not-call list for {phone}: "
+              f"{type(e).__name__}: {e}", flush=True)
+        return True
+
     with db.connect() as c:
         row = c.execute(
             """SELECT 1 FROM outreach_consent oc
@@ -369,30 +400,112 @@ def render(row) -> str:
                 "here and I will carry on from that, or ring back and I will "
                 "have it in front of me. No need to go through it again.")
 
+    if row["kind"] == "escalation":
+        # Added when escalations were built, and NOT added here, so an
+        # escalation fell through to the after_visit branch below and would
+        # have gone out as "Dale Brenner will ring you back within 2 hours.
+        # Is it holding now?" to somebody we had just told we could not staff
+        # their job. The fall-through is the dangerous part of this function:
+        # a new kind is silently rendered as the wrong message rather than
+        # failing.
+        return (ctx or "We are arranging cover for your job") + (
+            " I will confirm as soon as it is booked. If anything changes in "
+            "the meantime, reply here.")
+
+    if row["kind"] == "review_ask":
+        # Only ever queued after the customer has SAID it is holding. See
+        # asking.py: asking somebody whose freezer may still be broken to go
+        # and rate the repair is how a business earns one-star reviews.
+        from .asking import render_review_ask
+
+        return render_review_ask(row)
+
+    if row["kind"] == "delivery_check_in":
+        # An order is not finished when the carrier drops it, it is finished
+        # when the person who paid says the right thing arrived intact. The
+        # carrier already told us it landed, so this asks the only three
+        # things a tracking number cannot answer.
+        #
+        # DELIBERATELY NOT `ctx`. Every other kind stores context written for
+        # the customer, so reusing it here looked right and was not: the
+        # delivery context is a BRIEF FOR THE AGENT, and it ends "do not argue
+        # on the phone: record what they say and raise it." Sending that to
+        # the person who just took the delivery hands them our internal
+        # instructions and reads as though we expect a fight.
+        return ("Your order was delivered. Did it arrive undamaged, is it the "
+                "right machine, and is anything missing? Reply here and I "
+                "will close it off, or tell me what is wrong and I will sort "
+                "it.")
+
+    if row["kind"] == "offer_consent":
+        # THE MESSAGE WHOSE REPLY IS THE CONSENT.
+        #
+        # Says who is asking, what they would get, how often, and how to stop.
+        # A consent text missing any of those four is not consent anybody
+        # could rely on, and the reply to it is the only written record this
+        # system will ever have.
+        from .staying_in_touch import the_text
+
+        # Defensive about the column: render() is called with whatever shape
+        # the caller has, and a message must not fail to exist because one
+        # field is missing from the row.
+        try:
+            whose = row["dealer_id"] or ""
+        except (KeyError, IndexError, TypeError):
+            whose = ""
+        return the_text(whose)
+
+    if row["kind"] != "after_visit":
+        # A kind nobody wrote a message for. Sending the wrong sentence is
+        # worse than sending none, so this refuses and says so in the log
+        # rather than quietly borrowing the after-visit wording.
+        print(f"[followup] no message written for kind {row['kind']!r}, "
+              "not sending", flush=True)
+        return ""
+
     # after_visit. One question, answerable in three words.
     opener = ctx or "We were out to you yesterday"
     return f"{opener}. Is it holding now?"
 
 
-def due(dealer_id: str = "D-REF", at: datetime | None = None) -> list[dict]:
+def due(dealer_id: str = "D-REF", at: datetime | None = None,
+        ignore_timer: bool = False) -> list[dict]:
     """Follow-ups ready to go, oldest first.
 
     No quiet hours check. A dropped call is answered within minutes because
     they are still standing in front of the machine, and the after-visit
     question inherits the time of day the job closed, which was a working
     hour by definition.
+
+    Args:
+        dealer_id: whose queue.
+        at: the moment to judge readiness against.
+        ignore_timer: return everything queued, due or not. Only ever set by
+            a person pressing send on the console. The timer exists so a
+            message does not land in the same breath as the thing it is about,
+            and a human choosing to send now has already made that judgement.
+            It does NOT skip the opt-out check, which happens at queue time
+            and is not a timing question.
     """
     at = at or datetime.now()
+    when = "" if ignore_timer else "AND due_after <= ?"
+    params = ([dealer_id] if ignore_timer
+              else [dealer_id, at.isoformat(timespec="seconds")])
     with db.connect() as c:
         rows = c.execute(
-            """SELECT * FROM followups
-               WHERE dealer_id = ? AND status = 'queued' AND due_after <= ?
-               ORDER BY due_after""",
-            (dealer_id, at.isoformat(timespec="seconds"))).fetchall()
+            f"""SELECT * FROM followups
+                WHERE dealer_id = ? AND status = 'queued' {when}
+                ORDER BY due_after""",
+            tuple(params)).fetchall()
 
     return [{"id": r["id"], "kind": r["kind"], "phone": r["phone"],
              "message": render(r), "from_call": r["from_call"],
-             "work_order": r["work_order_id"]} for r in rows]
+             "work_order": r["work_order_id"],
+             # Carried so the sender can record WHO was asked. Without it the
+             # consent ask could not be tied back to an account, and the reply
+             # had nothing to match against.
+             "account_id": r["account_id"],
+             "contact_id": r["contact_id"]} for r in rows]
 
 
 def mark_sent(followup_id: str, via: str = "whatsapp") -> dict:
@@ -411,6 +524,22 @@ def record_reply(phone: str, text: str) -> dict:
     all good" into the desk and it is read as a fresh conversation, and the
     one piece of feedback the database cannot produce is thrown away.
     """
+    # A REPLY TO THE CONSENT TEXT IS NOT ORDINARY FEEDBACK.
+    #
+    # It is the only thing in this system that grants permission to market,
+    # because a text somebody typed is writing and a phone call is not. It has
+    # to be recognised before the general follow-up matching below, or a "YES"
+    # meant as consent gets filed as an answer to "did the repair hold".
+    try:
+        from .staying_in_touch import their_reply
+
+        consent = their_reply(phone, text)
+        if consent.get("ok"):
+            return {"ok": True, "kind": "offer_consent", **consent}
+    except Exception as e:
+        print(f"[followup] consent reply check failed: "
+              f"{type(e).__name__}: {e}", flush=True)
+
     with db.txn() as c:
         row = c.execute(
             """SELECT id FROM followups

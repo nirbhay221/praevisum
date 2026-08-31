@@ -34,6 +34,14 @@ from src import db, outreach  # noqa: E402
 def main() -> None:
     show = "--show" in sys.argv
 
+    # Placing the calls is opt-in, deliberately.
+    #
+    # The sweep decides who is worth ringing and that decision is safe to make
+    # every night. Actually ringing them is not something a scheduler should
+    # start doing because somebody deployed, so it waits to be asked, once,
+    # with a flag that has to be typed.
+    dial = "--dial" in sys.argv
+
     memory.load_from_db()
     with db.connect() as c:
         dealers = [r["id"] for r in c.execute("SELECT id FROM dealers ORDER BY id")]
@@ -52,6 +60,27 @@ def main() -> None:
         print(f"    queued  recalls {got.get('recall',0):>3}  "
               f"predictions {got.get('prediction',0):>3}  "
               f"offers {got.get('offer',0):>3}")
+
+        if dial:
+            from src import outbound
+
+            placed = outbound.run_queue(dealer)
+            print(f"    dialled {placed['placed']}, "
+                  f"could not place {placed['skipped']}")
+            for c in placed["calls"]:
+                print(f"      {c['kind']:<10} {c['to']}")
+            for s in placed["not_placed"]:
+                print(f"      not placed: {s['why']}")
+
+        # Follow-ups are not outreach and are not gated by marketing consent:
+        # a missed call and a dropped call are conversations the customer
+        # started. They go out on every run, dialling or not.
+        from src import sender
+
+        posted = sender.send_followups(dealer)
+        if posted["waiting"]:
+            print(f"    follow-ups {posted['sent']} sent, "
+                  f"{posted['failed']} could not be delivered")
 
         blocked = r["blocked"]
         if blocked:

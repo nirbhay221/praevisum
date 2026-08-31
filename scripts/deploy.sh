@@ -65,6 +65,29 @@ print('  checkpointed the write-ahead log')
 \"
   tar -xzf /tmp/praevisum.tgz -C ~/app
   cd ~/app
+
+  # BRING THE SCHEMA UP BEFORE THE SERVICE COMES UP.
+  #
+  # Nothing called db.init() on this path, and startup does not call it
+  # either, so a deploy shipped code that referenced tables and columns the
+  # live database did not have. New code then met the old schema and the
+  # failure landed on a customer rather than here: find_equipment selecting a
+  # column that does not exist throws on every product call.
+  #
+  # _reconcile_columns already knows how to add a column to a table that
+  # exists, and its own docstring records this VM ending up without
+  # complaints.predicted_repair for exactly this reason. It just was never
+  # run by the thing that ships the code.
+  #
+  # Before the restart, deliberately. Doing it afterwards leaves a window
+  # where the new code is serving against the old schema.
+  ./.venv/bin/python -c \"
+import sys; sys.path.insert(0, '.')
+from src import db
+db.init()
+print('  schema reconciled')
+\"
+
   ./.venv/bin/python -c \"
 import sqlite3
 c = sqlite3.connect('praevisum.db')

@@ -107,7 +107,12 @@ CREATE TABLE IF NOT EXISTS assets (
     family        TEXT,                      -- reach-in freezer, rooftop unit
     installed_on  TEXT,
     location_note TEXT,                      -- "kitchen, back wall"
-    retired_on    TEXT
+    retired_on    TEXT,
+    -- Which order put this machine here, when we sold it. Without it there
+    -- was no way to ask "have I already registered this delivery?", so a
+    -- carrier retry or a second click of the console button minted a second
+    -- identical machine on the customer's account.
+    from_order    TEXT REFERENCES purchase_orders(id)
 );
 CREATE INDEX IF NOT EXISTS ix_assets_site  ON assets(site_id);
 CREATE INDEX IF NOT EXISTS ix_assets_model ON assets(manufacturer, model_number);
@@ -162,6 +167,13 @@ CREATE TABLE IF NOT EXISTS technicians (
     lat          REAL,
     lon          REAL,
     van_location TEXT REFERENCES stock_locations(id),
+
+    -- A2P 10DLC blocks US business SMS from this deployment's number, so a
+    -- briefing sent by text comes back error 30034 undelivered. And a
+    -- technician cannot share a phone number with a customer, because desk.py
+    -- routes on exactly that fact. Email is the crew's own identity.
+    email        TEXT,
+
     active       INTEGER DEFAULT 1
 );
 

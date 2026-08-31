@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timedelta
 
 from . import db
-from .domain.geo import drive_minutes, miles
+from .tenancy import the_desk
 from .thresholds import *  # noqa: F401,F403
 
 
@@ -60,7 +60,7 @@ def _spoken_window(start: datetime, end: datetime) -> str:
 def register_complaint(manufacturer: str, what: str, model_number: str = "",
                        account_id: str = "", asset_id: str = "",
                        category: str = "", severity: str = "minor",
-                       call_id: str = "", dealer_id: str = "D-REF") -> dict:
+                       call_id: str = "", dealer_id: str = "") -> dict:
     """Write down a customer's complaint about a machine, in their own words.
 
     Not every gripe is a service call. "It is deafening", "the door seal is
@@ -80,6 +80,7 @@ def register_complaint(manufacturer: str, what: str, model_number: str = "",
         call_id: the call it came from.
         dealer_id: whose book this belongs to.
     """
+    dealer_id = the_desk(dealer_id)
     if not (manufacturer or "").strip() or not (what or "").strip():
         return {"ok": False, "why": "need a make and what they said"}
 
@@ -109,6 +110,22 @@ def register_complaint(manufacturer: str, what: str, model_number: str = "",
              manufacturer.strip(), model or "unknown", family,
              call_id or None, what.strip(), (category or "").strip() or None,
              severity, datetime.now().isoformat(timespec="seconds")))
+
+    # AND ASK WHETHER WE MAY KEEP IN TOUCH, once, off the back of it.
+    #
+    # The offers question was only ever queued when an ORDER was confirmed. A
+    # customer who rings to complain is a customer we have heard from, and if
+    # they have never been asked, the moment we have just taken their problem
+    # seriously is a fair one to ask in. Asked ONCE per account, ever, and a
+    # previous no still stands: `ask_after_delivery` refuses if they have been
+    # asked before, so complaining twice cannot mean being asked twice.
+    try:
+        from .staying_in_touch import ask_after_complaint
+
+        ask_after_complaint(account_id or "", dealer_id, call_id or "")
+    except Exception as e:
+        print(f"[feedback] could not queue the offers question after "
+              f"{cid}: {type(e).__name__}: {e}", flush=True)
 
     return {
         "ok": True, "complaint_id": cid,

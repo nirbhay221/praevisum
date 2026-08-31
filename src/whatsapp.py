@@ -80,15 +80,54 @@ def signature_ok(url: str, params: dict, signature: str) -> bool:
     token = settings.twilio_auth_token
     if not token or not signature:
         return False
-    try:
-        payload = url + "".join(
-            f"{k}{params[k]}" for k in sorted(params) if params[k] is not None)
-        want = base64.b64encode(
-            hmac.new(token.encode(), payload.encode("utf-8"),
-                     hashlib.sha1).digest()).decode()
-        return hmac.compare_digest(want, signature)
-    except Exception:
-        return False
+
+    # CHECKED AGAINST EVERY URL THIS REQUEST COULD HONESTLY HAVE ARRIVED AT.
+    #
+    # Twilio signs the URL IT was configured with. We reconstruct ours from
+    # the request, and behind a proxy the two can differ by a scheme, a port,
+    # or a trailing slash while describing the same call. When they do, the
+    # HMAC fails, we return 403, and Twilio records error 11200 -- which is
+    # what happened to every customer reply: the message reached Twilio, our
+    # endpoint refused it, and the reply was lost.
+    #
+    # This does NOT weaken the check. Every candidate is still verified by
+    # HMAC under the account token; we are only allowing for the fact that we
+    # do not know which spelling of our own address Twilio holds.
+    from urllib.parse import urlparse
+
+    body = "".join(f"{k}{params[k]}" for k in sorted(params)
+                   if params[k] is not None)
+
+    tried = [url]
+    if url.endswith("/"):
+        tried.append(url[:-1])
+    else:
+        tried.append(url + "/")
+
+    # getattr, because the tests replace settings with a bare namespace
+    # carrying only the token, and a missing attribute must not turn a
+    # signature check into an exception.
+    base = (getattr(settings, "public_ws_base", "") or "").replace(
+        "wss://", "https://").rstrip("/")
+    if base:
+        try:
+            tried.append(base + urlparse(url).path)
+        except Exception:
+            pass
+
+    for candidate in tried:
+        try:
+            want = base64.b64encode(
+                hmac.new(token.encode(), (candidate + body).encode("utf-8"),
+                         hashlib.sha1).digest()).decode()
+            if hmac.compare_digest(want, signature):
+                return True
+        except Exception:
+            continue
+
+    print(f"[whatsapp] signature did not match any spelling of this address; "
+          f"tried {tried}", flush=True)
+    return False
 
 
 def fetch_media(url: str) -> tuple[bytes, str]:
@@ -110,13 +149,70 @@ def fetch_media(url: str) -> tuple[bytes, str]:
         return b"", ""
 
 
+def send(to: str, text: str) -> dict:
+    """Start a conversation, rather than answer one.
+
+    Every other WhatsApp path here is a reply: Twilio posts an inbound message
+    and the answer rides back in the TwiML. A follow-up has nobody to reply
+    to, so it goes out through the REST API like an SMS does.
+
+    Meta charges nothing for a free-form message inside the twenty-four hours
+    after a customer messaged us, which is exactly when a dropped-call resume
+    goes out. Outside that window it needs an approved template, which this
+    deployment does not have, so it will simply fail and the sender will try
+    the next channel.
+
+    Args:
+        to: E.164 number, without the whatsapp: prefix.
+        text: the message, already assembled from facts.
+    """
+    from .outbound import _post, configured as _twilio_ready
+
+    if not _twilio_ready() or not to or not text:
+        return {"ok": False, "why": "no credentials, number or message"}
+
+    # The WhatsApp sender, which is NOT necessarily our phone number. On the
+    # sandbox it is Twilio's shared number; with an approved Business sender it
+    # is ours. Building it from twilio_from assumed the second case and broke
+    # the first, silently, on the reply rather than on the receipt.
+    # Falls back to the voice number here as well as in config, because
+    # settings is swappable and a fallback that lives in only one of the two
+    # places is a fallback that disappears when somebody substitutes the
+    # object. An approved Business sender IS our own number, so the fallback
+    # is correct rather than merely defensive.
+    sender = (getattr(settings, "twilio_whatsapp_from", "")
+              or getattr(settings, "twilio_from", "") or "")
+    if not sender:
+        return {"ok": False,
+                "why": "no WhatsApp sender configured. Set "
+                       "TWILIO_WHATSAPP_FROM to the sandbox number "
+                       "(+14155238886) or to an approved Business sender. "
+                       "Our voice number is not one unless Meta has approved "
+                       "it."}
+
+    out = _post("Messages.json", {
+        "To": f"whatsapp:{_number(to)}",
+        "From": f"whatsapp:{sender}",
+        "Body": text[:1500],
+    })
+    if out.get("ok"):
+        return {"ok": True, "sid": out["response"].get("sid"), "to": to}
+    return out
+
+
 def handle(from_number: str, body: str = "",
-           media: list[tuple[bytes, str]] | None = None) -> str:
+           media: list[tuple[bytes, str]] | None = None,
+           to_number: str = "") -> str:
     """One inbound WhatsApp message, handed straight to the desk.
 
     Args:
         from_number: the sender, with or without Twilio's whatsapp: prefix.
         body: what they typed.
         media: attachments already downloaded, as (bytes, content type).
+        to_number: the number they messaged. This is how the desk knows whose
+            business they reached, and it was being discarded: only `From` and
+            the body were read, so a first-time customer of the OTHER dealer
+            was served as a refrigeration customer.
     """
-    return desk.answer(_number(from_number), body, media, channel="whatsapp")
+    return desk.answer(_number(from_number), body, media,
+                       channel="whatsapp", dialled=_number(to_number))

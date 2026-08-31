@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timedelta
 
 from . import db
-from .domain.geo import drive_minutes, miles
+from .tenancy import the_desk
 from .thresholds import *  # noqa: F401,F403
 
 
@@ -55,7 +55,7 @@ _MACHINE_FAULT = ("faulty", "not_as_described")
 def register_return(kind: str, reason: str, said: str = "",
                     sku: str = "", asset_id: str = "", account_id: str = "",
                     qty: int = 1, condition: str = "unopened",
-                    call_id: str = "", dealer_id: str = "D-REF") -> dict:
+                    call_id: str = "", dealer_id: str = "") -> dict:
     """Record something coming back, and put it on the shelf if it can go there.
 
     Two different events share the word "return". A part coming back is stock:
@@ -77,6 +77,7 @@ def register_return(kind: str, reason: str, said: str = "",
         call_id: the call this came from.
         dealer_id: whose book.
     """
+    dealer_id = the_desk(dealer_id)
     kind = (kind or "").strip().lower()
     reason = (reason or "").strip().lower()
     condition = (condition or "unopened").strip().lower()

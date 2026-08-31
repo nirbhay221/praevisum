@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import contextvars
 import functools
+import threading
 import json
 from datetime import datetime
 
@@ -49,19 +50,63 @@ from . import db, events
 # calls, and adding a call_id parameter to every reasoning function to satisfy
 # a log would be the log dictating the shape of the code.
 #
-# Context variables follow an asyncio task and are copied into a worker
-# thread, which covers both paths this system has: the audio loop, and the
-# text channels that run the desk through a threadpool.
+# A context variable follows an asyncio task. It does NOT follow a worker
+# thread: this file used to claim it did, and the claim was wrong in a way
+# that quietly disabled a safety guard.
+#
+#     call_context("CALL-1")
+#     CALL.get()                    -> "CALL-1"
+#     executor.submit(CALL.get)     -> ""
+#
+# The framework runs some tool calls on a worker thread. guards.py opens with
+# `call_id = CALL.get(); if not call_id: return`, so on that thread the guard
+# returned immediately and filled in nothing. The scheduling agent was then
+# handed a work order id and no asset or account, and did the one thing its
+# instruction forbids in capital letters: it asked the customer for an Asset
+# ID and an Account ID.
+#
+# So there is a plain dictionary beside the context variable, which any thread
+# can read.
 CALL = contextvars.ContextVar("praevisum_call_id", default="")
+
+_ON_THE_LINE: dict[str, bool] = {}
+_LINE_LOCK = threading.Lock()
 
 
 def call_context(call_id: str):
     """Tie every decision made from here on to one call.
 
-    Set when the line opens and never unset: the context dies with the task,
-    so a later call cannot inherit an earlier one's id.
+    Set when the line opens. The context variable dies with the task; the
+    registry entry is removed by `call_over` when they hang up, so a later
+    call cannot inherit an earlier one's id from either.
     """
-    return CALL.set(call_id or "")
+    call_id = call_id or ""
+    if call_id:
+        with _LINE_LOCK:
+            _ON_THE_LINE[call_id] = True
+    return CALL.set(call_id)
+
+
+def call_over(call_id: str) -> None:
+    """They hung up. Take the call off the register."""
+    with _LINE_LOCK:
+        _ON_THE_LINE.pop(call_id or "", None)
+
+
+def here() -> str:
+    """The call we are part of, readable from any thread.
+
+    The context variable first, because it is exact. The register second, and
+    only when exactly one call is on the line: with two calls in progress
+    there is no way to tell which one a worker thread belongs to, and guessing
+    would attach one caller's decisions to another caller's record.
+    """
+    mine = CALL.get()
+    if mine:
+        return mine
+    with _LINE_LOCK:
+        live = [k for k in _ON_THE_LINE]
+    return live[0] if len(live) == 1 else ""
 
 
 def _guarded(fn):
@@ -247,3 +292,38 @@ def settled(dealer_id: str, outcome: dict) -> None:
     _say(dealer_id,
          f"    call {won}: {outcome.get('outcome')}{extra}",
          outcome=outcome.get("outcome"))
+
+
+@_guarded
+def quote(dealer_id: str, q: dict) -> None:
+    """Every line of the price, and which side of the warranty it fell on.
+
+    A total is a conclusion. What makes a quote arguable, and therefore
+    trustworthy, is the line that says the compressor is covered and the four
+    hours to fit it are not, next to the line that says where the hourly rate
+    came from.
+    """
+    _say(dealer_id,
+         f"  QUOTE {q.get('quote_id')}  {q.get('machine')}",
+         subject=q.get("quote_id"), verdict=_money(q.get("total")))
+
+    for line in q.get("lines", []):
+        mark = "CHARGE " if line.get("charged") else "COVERED"
+        _say(dealer_id,
+             f"    {mark} {_money(line.get('amount')):>9}  "
+             f"{str(line.get('what'))[:34]:<35} {str(line.get('why'))[:52]}",
+             subject=str(line.get("what"))[:60],
+             amount=line.get("amount"), charged=bool(line.get("charged")))
+
+    if q.get("covered_by_warranty"):
+        _say(dealer_id,
+             f"    warranty absorbs {_money(q['covered_by_warranty'])}, "
+             f"customer pays {_money(q.get('total'))}",
+             covered=q.get("covered_by_warranty"), verdict=_money(q.get("total")))
+
+    if q.get("range"):
+        lo, hi = q["range"]
+        _say(dealer_id, f"    could run {_money(lo)} to {_money(hi)}: "
+                        f"{q.get('range_why')}")
+
+    _say(dealer_id, f"    rate from {q.get('rate_from')}")

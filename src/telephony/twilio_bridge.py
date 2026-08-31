@@ -14,6 +14,7 @@ keeps talking over the customer for a second or two and the illusion dies.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import uuid
 from datetime import datetime
@@ -31,6 +32,7 @@ from ..caller import resolve
 from ..recall import MEMORY
 from .audio import make_inbound, make_outbound
 from .comfort import Comfort
+from .speech import Gate
 
 _session_service = InMemorySessionService()
 
@@ -42,12 +44,76 @@ _runner = Runner(
 )
 
 
+# Words the transcriber gets wrong on a service line, biased so it does not.
+#
+# OBSERVED, REPEATEDLY: a caller saying "UPS" was transcribed "USPS" and the
+# desk quoted USPS Priority Mail. Said again it came back "UBC". These are not
+# rare words on a desk that ships things, and the cost is a wrong carrier on a
+# real order.
+HEARD_WRONG = [
+    "UPS", "USPS", "FedEx", "DHL", "2nd Day Air", "Ground", "Next Day Air",
+    "EPA 608", "walk-in cooler", "reach-in freezer", "display cooler",
+    "ice machine", "compressor", "evaporator", "condenser", "defrost",
+    "thermostat", "purchase order", "work order", "warranty",
+]
+
+# WHAT THE CALLER IS ASSUMED TO BE SPEAKING.
+#
+# `language_auto` lets the transcriber pick per utterance, and on a live call
+# one English speaker was rendered as English, then Portuguese, then Hindi,
+# then German, in ninety seconds. Once it guessed Portuguese the desk called
+# set_language and switched, which is the feature working correctly on a
+# false premise.
+#
+# So the input language is STATED rather than guessed. This is not the same as
+# the desk only speaking English: set_language still switches what it SAYS
+# when a caller genuinely asks. It is the transcription that stops guessing.
+#
+# Overridable, because a dealer whose callers really do speak two languages
+# should say so rather than have it inferred from an accent.
+def _spoken_here() -> list[str]:
+    import os
+
+    raw = os.getenv("PRAEVISUM_CALLER_LANGUAGES", "en-US")
+    return [x.strip() for x in raw.split(",") if x.strip()] or ["en-US"]
+
+
+def _start_this_call_on(dealer_id: str, call_id: str = "") -> None:
+    """State the vendor at the start of every call, rather than inheriting.
+
+    The routed vendor is a ContextVar so it can reach a sub-agent. A
+    ContextVar that is only ever SET is a variable that can be inherited: a
+    task created while another call had routed itself to the IT company
+    starts life believing it is the IT company.
+
+    Nothing observed that in production, and the test suite proved it is
+    possible: one test routed to a vendor and every test after it inherited
+    the routing, which is the same mechanism.
+
+    So each call opens by saying which vendor it belongs to. The dialled
+    number decides, and route_to_vendor may change it later.
+    """
+    try:
+        from ..tenancy import routed_to
+
+        routed_to(dealer_id or "", call_id)
+    except Exception as e:
+        print(f"[live] could not set the vendor for this call: "
+              f"{type(e).__name__}: {e}", flush=True)
+
+
 def _run_config() -> RunConfig:
+    # `language_auto` is an object, not a flag: setting the codes and leaving
+    # it unset is how detection is turned off.
+    heard = types.AudioTranscriptionConfig(
+        language_codes=_spoken_here(),
+        adaptation_phrases=HEARD_WRONG,
+    )
     return RunConfig(
         response_modalities=[types.Modality.AUDIO],
         # transcripts on both sides: needed for the work-order record, and for
         # the eval harness later
-        input_audio_transcription=types.AudioTranscriptionConfig(),
+        input_audio_transcription=heard,
         output_audio_transcription=types.AudioTranscriptionConfig(),
     )
 
@@ -120,13 +186,82 @@ def _opening_brief(who: dict) -> str:
     return " ".join(lines)
 
 
+def _outbound_brief(outreach_id: str) -> str:
+    """What the agent knows when WE rang THEM.
+
+    The opening line is read from the queue rather than composed here, for the
+    same reason the remote fixes are read from a row: an unattended call to
+    somebody about a safety recall is the least forgiving thing this system
+    does, and the first sentence is not a place for improvisation.
+    """
+    from .. import db
+
+    try:
+        with db.connect() as c:
+            row = c.execute(
+                """SELECT q.kind, q.reason, q.evidence, a.name account
+                   FROM outreach_queue q JOIN accounts a ON a.id = q.account_id
+                   WHERE q.id = ?""", (outreach_id,)).fetchone()
+    except Exception as e:
+        print(f"[outbound] could not read {outreach_id}: "
+              f"{type(e).__name__}: {e}", flush=True)
+        row = None
+
+    if row is None:
+        return ("[Outbound call connected and we cannot see why it was placed. "
+                "Say you are an automated assistant, apologise, and end the "
+                "call. Do not invent a reason for ringing them.]")
+
+    from ..outreach import _opening_line
+
+    return (f"[OUTBOUND call to {row['account']}. They did not ring us; we "
+            f"rang them. Reason on file: {row['reason']}. "
+            f"Open with exactly this and nothing before it: "
+            f"\"{_opening_line(row)}\" "
+            "Say you are an automated assistant in that first sentence. If "
+            "they ask to be taken off the list, agree immediately and without "
+            "argument.]")
+
+
 # Tools worth covering. assess_job fans out to three agents and an embedding
 # call; build_briefing does the expected-value work over the whole corpus.
 # Everything else returns fast enough that the lead-in swallows it.
-SLOW_TOOLS = {"assessment", "assess_job", "build_briefing"}
+# There is no list of slow tools any more, and that is the fix.
+#
+# It used to be {"assessment", "assess_job", "build_briefing"}. On two real
+# calls not one of those ever fired: the tools that actually made the caller
+# wait were `scheduling` (twenty-five seconds at worst), `quote_visit` and
+# `load_memory`. So the hold music never played once, on any call, ever, while
+# 32.8 seconds of loaded audio sat in memory waiting for a name that never came.
+#
+# The list was redundant to begin with. LEAD_IN already does exactly this job:
+# comfort waits 1.6 seconds before making a sound, so anything quick finishes
+# first and is never heard. Filtering by name as well added nothing except a
+# second place to be wrong, and it drifted the moment a new tool was added.
+#
+# Start it on every tool call and let the lead-in decide.
 
+
+# How long to wait before giving the model a second chance, with music
+# playing. A 429 is usually a per-minute ceiling, so a few seconds is often
+# all it takes. Long enough to be worth trying, short enough that nobody
+# assumes the line has gone.
+MODEL_RETRY_WAIT = 6
 
 async def handle_call(ws: WebSocket) -> None:
+    # Every synchronous tool runs in a thread for the length of this call.
+    #
+    # ADK calls sync tools straight on the event loop, so one blocking urlopen
+    # freezes uvicorn, Twilio's keepalive ping goes unanswered, and the call
+    # is dropped mid-sentence. Two live calls died exactly that way. See
+    # src/offloop.py.
+    from ..offloop import tools_off_the_loop
+
+    with tools_off_the_loop():
+        await _handle_call(ws)
+
+
+async def _handle_call(ws: WebSocket) -> None:
     await ws.accept()
 
     to_gemini = make_inbound()
@@ -140,9 +275,25 @@ async def handle_call(ws: WebSocket) -> None:
     dealer_id = "D-REF"
     transcript: list[tuple[str, str]] = []
 
+    # Tie the reasoning to this call HERE, before the two pumps are started.
+    #
+    # A context variable is copied into a task when the task is created, not
+    # shared with it. Setting this inside pump_from_twilio, where the call
+    # actually begins, left pump_to_twilio with the value it had at gather
+    # time, which is empty. The tools run in pump_to_twilio, so every decision
+    # on every phone call would have been recorded against no call at all and
+    # /api/why would have had nothing to show for any of them.
+    #
+    # It is also what keeps two simultaneous calls apart: each handle_call is
+    # its own task, so each gets its own copy.
+    from ..trace import call_context
+
+    call_context(call_id)
+
     # Reads stream_sid through a callable rather than taking its value, because
     # it is still None here and only arrives with the start message.
     comfort = Comfort(ws, lambda: stream_sid)
+    gate = Gate()
 
     async def pump_from_twilio() -> None:
         nonlocal stream_sid, caller, session, dealer_id
@@ -161,6 +312,11 @@ async def handle_call(ws: WebSocket) -> None:
                     # between greeting someone by name and greeting a stranger.
                     # which business was dialled decides everything downstream:
                     # whose customers, whose technicians, whose repair corpus.
+                    # A call WE placed carries the queued reason instead of a
+                    # dialled number. The agent must know it rang somebody who
+                    # did not ring us, because the first sentence of an
+                    # outbound call decides whether they listen or hang up.
+                    outreach_id = start.get("customParameters", {}).get("outreach", "")
                     dialled = start.get("customParameters", {}).get("dialled", "")
                     with db.connect() as _c:
                         row = _c.execute(
@@ -168,11 +324,18 @@ async def handle_call(ws: WebSocket) -> None:
                             (dialled,)).fetchone()
                         if row:
                             dealer_id = row["id"]
-                    who = resolve(caller)
+                    # Scoped to the business they rang. Without it an IT
+                    # customer ringing the refrigeration line was recognised
+                    # and had their printers read out to a refrigeration desk.
+                    who = resolve(caller, dealer_id)
                     events.publish(dealer_id, "call_start",
                                    text=f"call from {caller}"
                                         + (f" - {who['contact_name']} at {who['account_name']}"
                                            if who.get("known") else " - new caller"))
+
+                    # WHICH VENDOR THIS CALL BELONGS TO, stated rather than
+                    # inherited from whatever the last call routed itself to.
+                    _start_this_call_on(dealer_id, call_id)
 
                     # The call itself is a row. Previously the thing this
                     # whole product is about was not recorded anywhere.
@@ -193,14 +356,6 @@ async def handle_call(ws: WebSocket) -> None:
                             "connected=1 WHERE id=?",
                             (dealer_id, start.get("callSid"), call_id))
 
-                    # Every decision made from here on is tied to this call,
-                    # so "why did the desk carry that part" is answerable
-                    # three weeks later rather than only while somebody is
-                    # watching the dashboard.
-                    from ..trace import call_context
-
-                    call_context(call_id)
-
                     session = await _session_service.create_session(
                         app_name=APP_NAME,
                         user_id=caller,
@@ -220,16 +375,26 @@ async def handle_call(ws: WebSocket) -> None:
                     # as it opens its mouth.
                     queue.send_content(types.Content(
                         role="user",
-                        parts=[types.Part(text=_opening_brief(who))],
+                        parts=[types.Part(text=_outbound_brief(outreach_id)
+                                          if outreach_id
+                                          else _opening_brief(who))],
                     ))
 
                 elif event == "media":
-                    queue.send_realtime(
-                        types.Blob(
-                            data=to_gemini(msg["media"]["payload"]),
-                            mime_type="audio/pcm;rate=16000",
+                    # Silence is not forwarded. Twilio sends fifty frames a
+                    # second whether anybody is speaking or not, and sending
+                    # all of them is what made the live session close with
+                    # "sending data too fast, review your flow control".
+                    # The gate keeps a trailing silence after speech so the
+                    # model can still tell when a turn has ended. See speech.py.
+                    payload = msg["media"]["payload"]
+                    if gate.open_for(base64.b64decode(payload)):
+                        queue.send_realtime(
+                            types.Blob(
+                                data=to_gemini(payload),
+                                mime_type="audio/pcm;rate=16000",
+                            )
                         )
-                    )
 
                 elif event == "dtmf":
                     # Nobody is told to press anything. Touch-tone menus lose
@@ -253,7 +418,34 @@ async def handle_call(ws: WebSocket) -> None:
         except WebSocketDisconnect:
             pass
         finally:
+            print(f"[audio] {gate.summary}", flush=True)
             queue.close()
+            # OFF THE REGISTER THE MOMENT THEY HANG UP, so the next caller
+            # cannot inherit this one's company from a stale entry.
+            try:
+                from ..guards import forget_the_machine
+                from ..language import forget_what_they_said
+                from ..tenancy import call_ended
+                from ..trace import call_over
+
+                call_ended(call_id)
+                call_over(call_id)
+                forget_the_machine(call_id)
+                forget_what_they_said(call_id)
+                from ..aftercare import forget_cover_quotes
+                from ..quoted import forget_quotes
+                from ..shortlist import (forget_shortlist, forget_the_choice,
+                                        forget_the_order)
+
+                forget_cover_quotes(call_id)
+                # A price is something said to a person in a conversation.
+                # It does not survive them hanging up.
+                forget_quotes(call_id)
+                forget_shortlist(call_id)
+                forget_the_choice(call_id)
+                forget_the_order(call_id)
+            except Exception:
+                pass
             # Close the call row with everything that was said.
             try:
                 with db.txn() as c:
@@ -298,6 +490,42 @@ async def handle_call(ws: WebSocket) -> None:
                     pass
 
     async def pump_to_twilio() -> None:
+        """The agent's side of the call.
+
+        Wrapped, because a model error used to end the call. Vertex returned
+        429 RESOURCE_EXHAUSTED on a sub-agent, ADK retried it with backoff for
+        about a minute, gave up, and the exception came out through here and
+        took the websocket with it. The customer heard sixty seconds of
+        nothing and then a dead line.
+
+        A quota blip is not a reason to hang up on somebody. Say something
+        true and keep the line open: they can repeat themselves, or ask for a
+        person, and either is better than silence.
+        """
+        for attempt in (1, 2):
+            try:
+                await _pump()
+                return
+            except Exception as e:
+                name = type(e).__name__
+                print(f"[live] the model stopped answering "
+                      f"(attempt {attempt}): {name}: {str(e)[:200]}",
+                      flush=True)
+                events.publish(dealer_id, "error",
+                               text=f"model error: {name}")
+                if attempt == 2:
+                    return
+
+                # Hold music rather than dead air. There is no way to SAY
+                # anything: the model that would speak the apology is the one
+                # that just failed, and there is no pre-rendered clip to fall
+                # back on. Music at least tells them the line is alive, which
+                # is the difference between waiting and hanging up.
+                comfort.start()
+                await asyncio.sleep(MODEL_RETRY_WAIT)
+                comfort.stop()
+
+    async def _pump() -> None:
         await started.wait()
         async for event in _runner.run_live(
             user_id=caller,
@@ -325,6 +553,17 @@ async def handle_call(ws: WebSocket) -> None:
                 text = (getattr(tr, "text", "") or "").strip() if tr else ""
                 if text:
                     transcript.append((who, text))
+                    # What the caller ACTUALLY said, so a claimed utterance
+                    # can be checked against it. The desk fabricated Spanish
+                    # to satisfy the language guard within an hour of that
+                    # guard being added.
+                    if who == "caller":
+                        try:
+                            from ..language import they_said
+
+                            they_said(call_id, text)
+                        except Exception:
+                            pass
                     print(f"[{who}] {text}", flush=True)
                     events.publish(dealer_id, who, text=text)
 
@@ -333,12 +572,11 @@ async def handle_call(ws: WebSocket) -> None:
                 if fc is not None:
                     print(f"[tool] {fc.name}({dict(fc.args or {})})", flush=True)
                     events.publish(dealer_id, "tool", text=f"{fc.name}()")
-                    # The slow ones. assess_job is three model calls plus an
-                    # embedding call, and the caller hears nothing at all while
-                    # it runs. Anything quick finishes inside the lead-in and
-                    # never makes a sound.
-                    if fc.name in SLOW_TOOLS:
-                        comfort.start()
+                    # Any tool call is a gap the caller is sitting in. The
+                    # 1.6 second lead-in means a fast lookup finishes before a
+                    # note is played, so this costs nothing on the quick ones
+                    # and finally covers the slow ones.
+                    comfort.start()
 
                 blob = getattr(part, "inline_data", None)
                 if blob is None or not blob.data:

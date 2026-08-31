@@ -1,159 +1,177 @@
 # Praevisum - architecture
 
-Written to be argued with. The last section lists what I think is wrong with it.
+One phone number. Four businesses behind it. The caller never hears about that.
+
+Written to be argued with. The last section lists what is wrong with it.
 
 ---
 
-## System
+## What it is
+
+A refrigeration dealer, an IT reseller, an office furniture supplier and an
+audio-visual company share a service desk. A customer rings one number and is
+served by whichever of the four sells what they are asking about, without ever
+being transferred, put on hold, or told "that is a different department".
+
+The same desk answers WhatsApp, and the same desk knows what it sold you last
+month, what it has fixed for other people, and what that model costs the
+business after the sale.
+
+---
+
+## The whole thing, end to end
 
 ```mermaid
 flowchart TB
-    subgraph caller["Restaurant, 6pm"]
-        PHONE["Customer phone"]
-        WA["WhatsApp<br/>nameplate photo"]
+    subgraph who["Somebody rings, or messages"]
+        CALLER["Customer<br/>one number, any of the four trades"]
+        WHATS["WhatsApp<br/>questions, photos of the fault"]
     end
 
-    subgraph twilio["Twilio"]
-        NUM["Voice number"]
-        MS["Media Streams<br/>8kHz mu-law"]
-        MSG["Messaging"]
+    subgraph desk["The desk"]
+        ANSWER["Answers in the caller's language<br/>knows who they are before they speak"]
+        WHOSE["Works out which business<br/>sells what they are asking for"]
+        HOLD["Fills the silence while it thinks<br/>music, and one offer read out<br/>only on a long wait"]
     end
 
-    subgraph run["Cloud Run &nbsp;-&nbsp; us-central1"]
-        VOICE["POST /voice<br/>TwiML"]
-        WS["WSS /stream"]
-        XC["audio.py<br/>mu-law 8k and PCM 16k/24k<br/>continuous resampler state"]
-        LRQ["LiveRequestQueue"]
-
-        subgraph adk["ADK Runner"]
-            FRONT["front - LlmAgent<br/>gemini-live native audio<br/>conversation only"]
-            AT["AgentTool: assess_job"]
-            SEQ["SequentialAgent"]
-            PAR["ParallelAgent"]
-            HIST["history"]
-            DISP["dispatch"]
-            PARTS["parts"]
-        end
-
-        TOOLS["tools.py<br/>identify - prior_repairs - check_stock<br/>find_technician - open_work_order<br/>promise_slot - build_briefing"]
-        KEEP["commitment keeper"]
+    subgraph buying["Buying something"]
+        FIND["What we have, at their price<br/>looks on another of our books<br/>if this one does not stock it"]
+        COVER["What the maker covers,<br/>and what we cover ourselves<br/>declined when it is poor value"]
+        ORDER["The order, read back before it is placed<br/>machine and cover on one invoice<br/>carriers with real dates"]
     end
 
-    subgraph gcp["Google Cloud"]
-        LIVE["Gemini Live API<br/>us-central1"]
-        FLASH["Gemini 2.5 Flash<br/>workers"]
-        FS[("Firestore<br/>customers - units - parts<br/>technicians - work_orders<br/>reservations")]
-        RAG[("Vertex AI RAG corpus<br/>repair narratives")]
-        ART[("Artifacts<br/>nameplate photos")]
-        PS["Pub/Sub"]
-        SCH["Cloud Scheduler"]
+    subgraph service["Something is broken"]
+        WHICH["Which of THEIR machines<br/>never a stranger's, never invented"]
+        WORTH["Is a visit even warranted<br/>or can it be talked through"]
+        WHO["Who is qualified and near<br/>and what is already in their van"]
+        BOOK["A real slot, or an honest escalation<br/>never a promise nobody can keep"]
     end
 
-    TECH["Technician phone<br/>THE BRIEFING"]
+    subgraph after["After the visit"]
+        BRIEF["The engineer is emailed<br/>the fault history, the parts to take,<br/>what the customer photographed"]
+        FITTED["They text back what they fitted"]
+        LEARN["The book learns:<br/>what fixed it, what our advice missed,<br/>what the visit cost"]
+    end
 
-    PHONE --> NUM --> VOICE --> WS
-    NUM <--> MS <--> WS
-    WA --> MSG --> TOOLS
-    WS <--> XC <--> LRQ <--> FRONT
-    FRONT <--> LIVE
-    FRONT --> AT --> SEQ
-    SEQ --> PAR --> HIST & DISP
-    SEQ --> PARTS
-    HIST & DISP & PARTS --> FLASH
-    HIST & DISP & PARTS --> TOOLS
-    FRONT --> TOOLS
-    TOOLS <--> FS
-    TOOLS <--> RAG
-    TOOLS <--> ART
-    TOOLS --> MSG --> TECH
-    TOOLS --> PS --> KEEP
-    SCH --> KEEP
-    KEEP --> TOOLS
+    subgraph owner["What the owner sees"]
+        BOARD["Orders to approve or cancel<br/>jobs, crew, stock"]
+        LOSS["What each product costs us<br/>after the sale"]
+        BUY["What to reorder,<br/>and what to stop stocking"]
+    end
+
+    subgraph out["Going the other way"]
+        ASK["May we tell you about offers<br/>asked once, after a sale or a complaint"]
+        WRITTEN["Their reply is the permission<br/>saying yes on the phone is not enough"]
+        MATCH["What their own kit suggests<br/>they need and do not have"]
+        HUNT["Businesses worth approaching<br/>from public listings, not a dialler"]
+    end
+
+    CALLER --> ANSWER
+    WHATS --> ANSWER
+    ANSWER --> WHOSE
+    ANSWER -.-> HOLD
+    WHOSE --> FIND
+    WHOSE --> WHICH
+
+    FIND --> COVER --> ORDER
+    ORDER --> ASK
+
+    WHICH --> WORTH --> WHO --> BOOK
+    BOOK --> BRIEF --> FITTED --> LEARN
+    WHICH --> ASK
+
+    ORDER --> BOARD
+    BOOK --> BOARD
+    LEARN --> LOSS --> BUY
+    LOSS --> BOARD
+
+    ASK --> WRITTEN --> MATCH
+    HUNT --> MATCH
 ```
 
-## The one path that matters
+---
+
+## What happens on one call
 
 ```mermaid
 sequenceDiagram
     participant C as Customer
-    participant F as front
-    participant A as assess_job
-    participant D as data
-    participant T as Technician
+    participant D as The desk
+    participant B as The book
+    participant E as Engineer
 
-    C->>F: "walk-in isn't holding overnight"
-    F->>D: identify_caller(+1309...)
-    D-->>F: Pearl Street Kitchen, 2 units
-    F->>C: "Is this the Traulsen reach-in again?"
-    C->>F: "yes, display says dEF"
+    C->>D: "the walk-in isn't holding overnight"
+    D->>B: who is this number
+    B-->>D: Pearl Street Kitchen, two machines
+    D->>C: "the Traulsen reach-in, or the walk-in?"
+    C->>D: "the walk-in, display says dEF"
 
-    F->>A: assess_job
-    par independent
-        A->>D: prior_repairs(serial, symptom)
-        D-->>A: 2 prior visits, this unit.<br/>"thermostat alone did not hold"
-    and
-        A->>D: find_technician("reach-in freezer")
-        D-->>A: Dwight, van has evap fan motor
-    end
-    A->>D: check_stock(thermostat, heater)
-    D-->>A: both on hand
-    A-->>F: today is possible
+    Note over D,B: three things at once:<br/>what this unit needed before,<br/>who is qualified and near,<br/>whether the parts are in stock
 
-    F->>D: open_work_order
-    F->>C: "Thursday 2-4, Dwight"
-    F->>D: promise_slot -- reserve or refuse
-    D-->>F: promised, 2 parts held
-    F->>D: build_briefing
-    D->>T: unit - 2 prior visits - LOAD: thermostat + heater<br/>(evap fan already in your van)
+    D->>C: "Wednesday morning, Ben, he has the<br/>defrost board on the van"
+    D->>E: the briefing, by email
+    E->>D: "board was fine, it was the timer"
+    Note over B: the book learns what actually fixed it,<br/>and that our advice named the wrong part
 ```
 
-## Layers
+---
 
-| Layer | Owns | Rule |
-|---|---|---|
-| **Conversation** (`front`) | Turn-taking, tone, disclosure, when to reach for a tool | Knows nothing about refrigeration. Never asserts a fact a tool didn't return. |
-| **Assessment** (`assess_job`) | History, availability, stock | Read-only. Produces no side effects, makes no promise. |
-| **Decision** (`tools.py`) | Work orders, reservations, promises, briefings | Deterministic. The model chooses *which* tool; code decides *whether* it can happen. |
-| **Durability** (Firestore / RAG / Artifacts) | State that outlives the call | Behind `store.py`. Nothing above this layer knows the backend. |
-| **Continuity** (commitment keeper) | The promise after the call ends | Runs on a schedule, not on a request. |
+## The ideas worth arguing with
 
-**Non-negotiable:** a promise is refused, never softened. `promise_slot` releases every part it already took and names the blocking SKU rather than committing a window it cannot keep.
+**The caller is never asked for an identifier.** Not an account number, not a
+model number, not an order reference. We have those; they do not. Every place
+the desk asked for one was a bug, and each is now closed in code rather than
+by asking the model to remember.
+
+**Nothing is promised that the book cannot keep.** A delivery date comes from
+the carrier table, a repair slot from the diary, a price from the price list.
+Where there is no answer, the desk says so and escalates, which is why a
+customer sometimes hears "I cannot staff that today" instead of a date that
+would have been fiction.
+
+**We sell cover, and we talk people out of it.** Where a maker already covers
+a chair for twelve years, or the plan would cost more than a fifth of what
+they are paying, the desk says not to buy it. That refusal is worth more than
+the sale.
+
+**Marketing permission has to be written.** Agreeing on the phone is not
+enough, because an artificial voice making a marketing call needs prior
+express written consent. So the desk texts, and only a reply grants it.
+
+**Loss decides what we stock.** Service visits, returns and claims are posted
+against the model that caused them. A product that sells well and costs more
+after the sale than it earned is not a reorder, it is a delisting.
+
+**Guards, not instructions.** A model asked to be careful will be careful most
+of the time. The identifiers, the prices, the shortlist and the company
+boundary are all enforced in code that runs before every tool call, because
+"most of the time" is the wrong number when it decides what somebody is
+charged.
 
 ---
 
-## Known weaknesses - this is the part to fix
+## Known weaknesses - the part to fix
 
-### 1. `assess_job` blocks the turn. This is the big one.
-The README claims specialists run "while the customer is still talking." **Architecturally that is not true yet.** `AgentTool` is a normal tool call: the front agent's turn does not complete until it returns. `ParallelAgent` cuts wall-clock time (history and dispatch overlap) but the conversation still stalls for the duration.
+**1. Advice takes half a minute.** Weighing our own repair record against the
+catalogue is several model calls, and the caller hears music while it runs.
+The music is honest and it is not an answer.
 
-Two honest options:
-- **(a) Own it.** Keep the blocking call, have `front` narrate through it ("let me pull that unit's history - one moment"). Simple, truthful, and a two-second gap on a service call is normal human behaviour.
-- **(b) Fix it properly.** Fire the assessment as an `asyncio` task on call start, write results into session state under `assessment_ready`, and let `front` read state instead of calling a tool. Genuinely non-blocking, and it makes the architectural claim real.
+**2. Machines get registered twice.** A customer describing a laptop they
+already own can produce a second record of it, and a technician certified on
+"laptop" is not certified on "notebook". The matching is by family name and it
+is too literal.
 
-(b) is the better project and maybe half a day. **I'd do (b).** But it should be a decision, not drift.
+**3. The book is one file.** SQLite on one machine, backed up by copying it.
+Fine for four dealers, wrong for forty.
 
-### 2. `Store.reserve()` is a read-then-write race
-`available()` then `reservations[sku] = ...` with nothing between them. Two concurrent calls can both be promised the last defrost timer. In-memory it's a latent bug; on Firestore it needs a **transaction**. Since "the part gets pulled out from under the promise" is literally the demo's climax, this has to be correct rather than approximately correct.
+**4. The desk speaks ten languages and holds terms for far fewer makes.** When
+the maker's warranty is unknown it offers our own cover, which is honest, but
+it is a gap being papered over rather than closed.
 
-### 3. Cloud Run will drop live calls
-A WebSocket plus in-process session state on a service that scales to zero and evicts instances means a restart mid-call kills it. Needs `--min-instances=1`, `--session-affinity`, and a generous request timeout. Sessions are `InMemorySessionService` today - moving to `DatabaseSessionService` or `VertexAiSessionService` is what makes a mid-call restart survivable.
+**5. Nothing measures whether the advice is any good, yet.** The recommended
+parts and the fitted parts are both recorded now, and the comparison needs
+more closed visits behind it before the number means anything.
 
-### 4. `/stream` is unauthenticated
-Anyone who finds the URL can open a socket and burn Vertex tokens. Needs Twilio signature validation on `/voice` and a short-lived signed token in the stream URL.
-
-### 5. History reads the Store, not the RAG corpus
-`prior_repairs` does keyword matching over seeded records. The design says Vertex AI RAG with semantic search. Fine for now - but "customer describes a fault in words that don't match the record" is exactly where keyword matching fails and semantic retrieval earns its place.
-
-### 6. Barge-in depends on an unverified field
-`twilio_bridge` checks `event.interrupted` defensively via `getattr`. If ADK signals interruption differently, the agent talks over the customer and the demo dies on camera. **Verify against a real call before anything else.**
-
-### 7. Narrowband audio
-Telephony is 8kHz. Upsampling to 16kHz adds no information. A stressed caller in a loud kitchen is the worst case for recognition, and the demo audio should be recorded somewhere quiet.
-
----
-
-## Deferred on purpose
-
-Equipment specialist per brand (manuals into 2M context) - photo to model resolution - commitment keeper - eval/ablation harness - Vertex AI Agent Engine deployment.
-
-Each is a row in the README honesty table and none is claimed as working.
+**6. Quota is a single point of failure.** When the model provider rate-limits
+us, the desk degrades mid-sentence. It retries, and it plays music rather than
+silence, and that is all it can do.

@@ -61,6 +61,17 @@ LEAD_IN = 1.6
 # swamp them on a speakerphone in a commercial kitchen.
 GAIN = 0.28
 
+# How long a pause has to run before the station break plays. Deliberately
+# far past LEAD_IN: station.py's objection to promotions over hold audio was
+# that "a spoken line in a 1.6 second gap talks over the agent coming back",
+# and that is correct about a 1.6 second gap. It is not correct about a
+# forty-seven second one, which is what `advice` actually took on a live call
+# while the caller listened to a loop.
+#
+# So the objection is answered by waiting rather than by argument. An ordinary
+# lookup finishes long before this and the caller never hears an advert.
+PROMO_AFTER = 7.0
+
 HOLD_WAV = Path(__file__).resolve().parents[2] / "assets" / "hold.wav"
 
 _frames: list[str] | None = None
@@ -78,7 +89,17 @@ def _load() -> list[str]:
         return _frames
 
     try:
-        with wave.open(str(HOLD_WAV), "rb") as w:
+        # Today's track rather than the one file. Same rotation the phone
+        # line uses, so a caller who is held and then waits through a lookup
+        # hears one piece of music rather than two.
+        try:
+            from ..station import path_for
+
+            source = path_for()
+        except Exception:
+            source = HOLD_WAV
+
+        with wave.open(str(source), "rb") as w:
             if w.getframerate() != TWILIO_RATE or w.getnchannels() != 1:
                 # Not worth resampling here. If the asset stops being 8 kHz
                 # mono, the fix belongs in whatever produced it.
@@ -112,6 +133,11 @@ class Comfort:
         self._ws = ws
         self._sid = stream_sid_getter
         self._task: asyncio.Task | None = None
+        # Once per CALL, not once per pause. A caller who waits through four
+        # lookups should hear the offer once, the way a radio station does
+        # not play the same advert every four minutes.
+        self._played_break = False
+        self._promo: list[str] | None = None
 
     @property
     def playing(self) -> bool:
@@ -127,26 +153,65 @@ class Comfort:
             self._task.cancel()
             self._task = None
 
+    async def _send(self, payload: str) -> None:
+        sid = self._sid()
+        if sid:
+            await self._ws.send_text(json.dumps({
+                "event": "media",
+                "streamSid": sid,
+                "media": {"payload": payload},
+            }))
+        # Real time. Sending faster than the line plays would pile up in
+        # Twilio's buffer and keep playing long after the answer is ready,
+        # which is the failure this is supposed to prevent.
+        await asyncio.sleep(FRAME_MS / 1000)
+
+    def _the_break(self) -> list[str]:
+        """The station break for whichever company this call belongs to.
+
+        Read once per call, at the moment it is needed, so a caller routed to
+        the furniture business never hears the refrigeration offer. Returns
+        nothing when there is no live promotion, and silence is the right
+        answer then.
+        """
+        if self._promo is not None:
+            return self._promo
+        self._promo = []
+        try:
+            from ..radio import frames_for
+            from ..tenancy import the_desk
+
+            self._promo = frames_for(the_desk())
+        except Exception:
+            pass
+        return self._promo
+
     async def _run(self) -> None:
         try:
             await asyncio.sleep(LEAD_IN)
             frames = _load()
             if not frames:
                 return
+
+            waited = LEAD_IN
             i = 0
             while True:
-                sid = self._sid()
-                if sid:
-                    await self._ws.send_text(json.dumps({
-                        "event": "media",
-                        "streamSid": sid,
-                        "media": {"payload": frames[i % len(frames)]},
-                    }))
+                # THE STATION BREAK, ONCE, AND ONLY ON A LONG WAIT.
+                #
+                # Played over the top of nothing rather than mixed under the
+                # music: two 8 kHz mono streams summed on a phone line is
+                # mud, and an advert a caller cannot make out is worse than
+                # no advert. The music resumes underneath afterwards, so what
+                # they hear is music, a break, and music again.
+                if (not self._played_break and waited >= PROMO_AFTER):
+                    self._played_break = True
+                    for payload in self._the_break():
+                        await self._send(payload)
+                        waited += FRAME_MS / 1000
+
+                await self._send(frames[i % len(frames)])
                 i += 1
-                # Real time. Sending faster than the line plays would pile up
-                # in Twilio's buffer and keep playing long after the answer is
-                # ready, which is the failure this is supposed to prevent.
-                await asyncio.sleep(FRAME_MS / 1000)
+                waited += FRAME_MS / 1000
         except asyncio.CancelledError:
             pass
         except Exception:

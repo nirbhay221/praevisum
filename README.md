@@ -115,7 +115,22 @@ relationship with one.
 - Several states require an **AI-voice disclosure at the start of the call**
 - **Illinois is two-party consent** - relevant to recording the demo; use consenting participants
 - $500/violation, trebled to $1,500 willful
-- **Inbound with disclosure only. No outbound sales calling.**
+
+#### Approaching a business we have never met
+
+The earlier rule here read "inbound with disclosure only, no outbound sales
+calling". That was the safe reading rather than the correct one, and the
+researched position is narrower in one direction and wider in another.
+
+- The **Telemarketing Sales Rule broadly exempts marketer-to-business calls**, and the national Do Not Call registry does not reach them. This is the entire legal basis for `prospect.py`.
+- The exemption **stops at the handset**. Every wireless number is treated as residential whoever owns it, and there is no business carve-out for a mobile. So an AI voice may ring a published business landline and may not ring a mobile. `linetype.py` resolves which, and fails closed to "mobile" on every error path.
+- **Calls 9:00 to 19:00 local time at their address**, which is narrower than the law allows on both ends.
+- An **internal do-not-call request** is a separate obligation from the federal registry, survives the end of any relationship, must be honoured within 10 business days, and the record is kept 4 years. `take_us_off_your_list` is on both desks; the row is never deleted.
+- **Messaging is not a way round any of it.** WhatsApp requires explicit prior opt-in and treats an imported list as grounds for shutting the sender down. A Telegram bot cannot open a conversation at all: the user must message it first. Both platforms are opt-in by construction, so there is no cold channel in any medium.
+
+The practical consequence is that most small restaurants publish a mobile and
+are therefore unreachable by this desk. On the seeded demonstration set, two of
+five businesses may lawfully be rung. That ratio is the feature.
 
 ---
 
@@ -146,6 +161,8 @@ Open-source agent execution framework (Python / Java / Go / TypeScript), support
 ## Data
 
 **Real and free:**
+- **BLS Occupational Employment and Wage Statistics** - occupation 49-9021, refrigeration mechanics, at metro level rather than national. Davenport-Moline-Rock Island 2025: mean $33.65/hr (series `OEUM001934000000049902103`), median $31.34 (`...08`). This is what the labour line on every quote is built from, and the series ID is recorded on the quote so the number can be pulled again rather than defended
+- **Manufacturer warranty statements** - True, Traulsen, Continental, Beverage-Air, Avantco, Delfield, Hoshizaki. Loaded by `scripts/load_warranties.py` with the source URL and the day it was read, because the terms differ per series and they change: Traulsen's six year term applies to units invoiced from January 2023 and not before
 - **SaferProducts.gov API** - CPSC public consumer complaint database (appliance reports of harm), searchable and exportable
 - **CPSC Recalls API**
 - **Brand service documentation** - Whirlpool diagnostic codes (`CF` main and UI board comms failure, `PO` power outage, `dF` defrost failure), tech sheets, iFixit trees; **Traulsen Master Service Manual Form TR35705** (INTELA-TRAUL controllers, G-Series and R&A Series). PDFs into Gemini 2M context.
@@ -177,13 +194,56 @@ NOTE: **Do not sprawl.** Proveracus grew to seven domains; the review verdict wa
 
 ## Demo (~4 min)
 
-1. Phone rings on speaker. Real conversation, stressed restaurant owner, walk-in failing.
-2. Nameplate photo arrives on WhatsApp mid-call; agent resolves model and serial.
-3. Agent commits to a slot **while the customer is still on the line**.
-4. Cut to the technician's phone - briefing lands with three prior occurrences on that unit and the parts to load.
-5. **Break it:** the part gets allocated to another job; agent calls back and re-commits.
-6. Ten-second generality beat: second call, Whirlpool, `dF`, different manual, same engine.
-7. Close on the GCP console - Cloud Run, Firestore, Pub/Sub.
+Lead with the refusal, not the conversation. Plenty of entries this year will
+show an agent booking an appointment; the differentiator is a system that
+declines, and says why in words a business owner would use.
+
+**0:00 to 0:25 - one number, four businesses.**
+Call the desk. It greets by naming what this caller owns, because the number
+was resolved to an account before anybody spoke. Say something furniture: "the
+gas lift on one of our chairs has gone". Same number, and the desk is now
+answering as the furniture company, quoting its terms. Say the line out loud:
+one number, four companies, and the caller never chose.
+
+**0:25 to 1:20 - the breakdown, done properly.**
+"The walk-in is not holding overnight, there is stock in it." Watch for three
+beats: it puts the machine on the account rather than asking for an Asset ID,
+it checks who is actually EPA certified for that refrigerant before promising
+anybody, and it holds a slot without committing until they agree.
+
+**1:20 to 2:05 - the part it will not sell you.**
+Ask for a door gasket. It quotes **$78.20, not $92.00**, and says why: a live
+15% offer it found in `promotion_parts` on its own. Then ask for something
+recalled and watch it refuse. Then ask for `HL-L2400DW`: it finds the thirteen
+`HL-L2400D` on the shelf and reports them as a NEAR match with what differs,
+instead of selling the wrong printer.
+
+**2:05 to 2:50 - the technician's side.**
+The engineer texts a QUESTION, not a closure: "why is it producing hollow
+cloudy cubes?" The answer comes back with the company's own history first,
+counted: *"water inlet valve partially blocked, scale on the evaporator plate
+(3 times, latest 2026-07)"*. Then they close by text, and the corpus grows
+while you watch.
+
+**2:50 to 3:35 - hunting, and mostly refusing to.**
+Run the prospect sweep on screen. Five businesses, all five with a real
+detected problem quoted from public text, and **two callable**. Read the
+refusals out: two are mobiles, which an artificial voice may not ring whoever
+answers, and one asked us to stop. This is the beat that lands, because
+everybody else's outbound demo dials all five.
+
+**3:35 to 4:00 - the receipts.**
+The console: what the desk stopped this week, split into corrected and blocked.
+Then `calibration.reliability()` returning `checked: 0` and saying so in its own
+words. Close on that. A system that reports an empty result honestly is the
+whole argument.
+
+### What NOT to show
+
+- Hold music. It is 32 seconds of instrumental and it proves nothing.
+- The catalogue size. 88,544 machines is a number, not a capability.
+- Anything requiring a live Serper or Twilio lookup, which costs money and can
+  fail on camera. Seed it first with `python -m scripts.seed_prospects`.
 
 ---
 
@@ -219,6 +279,15 @@ Stolen from `aish2897/after-hours-site-continuity-fleet`, which is a good patter
 | Restock advice | `VERIFIED` | Periodic-review reorder point, complaint signal discounted three ways |
 | Federal recalls in buying advice | `VERIFIED` | Machine vs accessory recalls distinguished; recalled models cannot be recommended |
 | **Outreach sweep (recalls, predictions, offers)** | `VERIFIED` | Daily systemd timer, runs with no human. Consent enforced, safety recalls exempt |
+| Warranty | `IMPLEMENTED` | Absent entirely before this: no table, no column, no tool. The desk would quote four hundred dollars for a board on a covered machine and be confidently wrong in the direction that costs the customer money. Now driven by the manufacturers' own published terms, loaded with the URL they came from, and coverage is worked out PER LINE because that is how the terms actually read: wear items are excluded from every one of them, so a door gasket is chargeable on a fully covered machine; compressor cover outlasts parts and labour cover, so a six and a half year old Traulsen has a covered compressor and nothing else; and Traulsen ship the compressor and bill the owner for fitting it, so the part is free and the four hours are not. Not knowing is still reported as not knowing rather than as expired |
+| What a visit costs | `IMPLEMENTED` | The money side was missing entirely: grep found zero references to a labour rate, a call-out charge or an out-of-hours premium. A visit recorded `labor_hours` after the fact and nothing priced them, so the first question anybody asks met the rule that there are no prices beyond what a tool returned and became "I will have to confirm and follow up", every time. `quote_visit` prices the labour from the BLS median wage for occupation 49-9021 in this metro, the hours from what jobs on that family actually took on our own book, and returns a range rather than one number. Every line carries what it is based on, and the quote is written down so what was said can be checked against what was billed |
+| Certification, not just skill | `IMPLEMENTED` | `technician_skills` said somebody works on reach-in freezers. EPA Section 608 is what legally permits opening a refrigerant circuit, and its types are not interchangeable: Type I does not cover a walk-in. The briefing already warned that R-290 is flammable and could not say whether the person being sent was licensed to touch it |
+| When the customer can be there | `IMPLEMENTED` | The diary knew when a technician was free and nothing asked when the restaurant could take one. A window offered across a lunch service gets refused, or worse accepted and missed. The scheduler now says WHY a slot was ruled out rather than only that nobody is free |
+| Outbound calls actually placed | `IMPLEMENTED` | The last mile that did not exist. `sweep_recalls` found people who own a recalled machine, queued them above every sales call, and nothing rang anybody, which is worse than not sweeping because the system reported having handled it. Nothing in `outbound.py` decides who to ring: consent, quiet hours and the cap all ran in `outreach.py` first, asserted by a test that greps for them. Will not leave a voicemail about a recall, and a call that could not be placed is never marked done |
+| Follow-ups actually delivered | `IMPLEMENTED` | The same gap as the recall queue, found in a second place. `followup.due()` rendered a missed call, a dropped call and an after-visit check into sentences and nothing read the list, so a customer whose call dropped got a message that never left the building while the desk recorded having followed up. `sender.py` tries the channel they actually use, falls through when one refuses, and leaves anything undelivered queued rather than marked sent |
+| WhatsApp outbound | `IMPLEMENTED` | Every other WhatsApp path was a reply riding back in the TwiML. A follow-up has nobody to reply to, so it goes out over REST. Free inside Meta's 24 hour window, which is exactly when a dropped-call resume is sent |
+| SMS inbound | `IMPLEMENTED` | `close_by_text` was built for a technician replying to a briefing by text and had no route to reach it, so the loop that grows the corpus only worked if they happened to be on WhatsApp |
+| Sweep on Cloud Run | `IMPLEMENTED` | `Dockerfile.sweep`. The phone stays on the VM because a call holds a websocket and scaling to zero drops the customer; the sweep holds nothing, so it is the half that should scale to zero. Dialling is behind an explicit `--dial` so a deploy cannot start ringing people |
 | Outbound call consumer | `IMPLEMENTED` | Claims a call, hands over the opening line, honours opt-out. Never dialled anybody |
 | ADK memory service on the Runner | `VERIFIED` | `recall.py` implements `BaseMemoryService`, per-dealer |
 | Cloud SQL Postgres backend | `VERIFIED` | Full schema applied, business logic run against it. Instance stopped to save cost |
@@ -254,6 +323,16 @@ Stolen from `aish2897/after-hours-site-continuity-fleet`, which is a good patter
 | Parts confirmed onto the van | `IMPLEMENTED` | The hole in this project's own opening line. The desk worked the part out, held it, and texted the briefing, and nothing checked anybody picked it up: `reservations` recorded a claim on stock, not a fact about a van. The briefing now asks for one word and the reply answers it, on the thread the technician already uses. A denial or a vague "ok" is never read as confirmation |
 | Was the desk right | `IMPLEMENTED` | The desk says 44% and a technician later writes what it really was. Both facts always existed and were never compared, because the prediction was never written down. Reports the curve band by band with the sample behind each point, and corrects nothing: these are normalised retrieval similarities, and scaling them until they look right would produce a well calibrated number about a corpus that is generated |
 | Eval / ablation harness | `NOT BUILT` | The persuasive one. Same calls, briefing off vs on |
+| Ice machines findable at all | `VERIFIED` | `find_equipment` required `daily_kwh IS NOT NULL` and not one of 585 certified ice machines carries it, because ENERGY STAR rates them per 100 lb of ice rather than per day. Every ice machine had therefore been invisible to the only tool that recommends equipment, for the life of the project, and the desk answered "nothing in the catalogue matches" to anybody asking for one. Daily consumption is now computed from the machine's own published harvest rate and energy figure, which is a ceiling at full duty rather than an estimate. 1,134 rows backfilled, 578 findable, sized in pounds of ice a day because nobody asks an ice machine's cubic feet |
+| Catalogue asked for what was said | `VERIFIED` | Three faults in one query. `daily_kwh` mixed commercial kWh-a-day with residential kWh-a-year in one `ORDER BY`; the family table fell back to `%` so "a freezer" matched the entire catalogue and "office chair" returned refrigerators; and rows with no model number were offered as the cheapest match, which is a machine the desk cannot name, quote or order |
+| Variant model numbers | `VERIFIED` | `HL-L2400DW` could not match a stocked `HL-L2400D`, because a single LIKE cannot match a stored string SHORTER than the query. Thirteen sat on the shelf while the desk said we had none. Reported as a NEAR match carrying what differs, never merged into the exact results: the wireless one and the non-wireless one are different prices and only one does what they want |
+| Offers applied at the quote | `VERIFIED` | The owner records promotions and `promotion_parts` maps them to exact SKUs. Nothing in any pricing path read that mapping, so a door gasket was quoted at the full $92.00 with a live 15% gasket offer on file, and the only route to it was already knowing to ask. Now applied unprompted and eligibility-gated. Offers that are not arithmetic, a buy-three-pay-for-two or free labour, are read out in their own words and never turned into a price |
+| Learning loop reconciled | `VERIFIED` | The technician's text reply was the ONLY route into the corpus. 851 visits completed and diagnosed, 670 with a repair record: one job in five was done, written up and never reached anywhere the desk could read it. The bias had a direction, which is what made it worth fixing, since jobs closing on paper in the office are exactly the awkward ones worth learning from. Corpus 670 to 851, all re-indexed and retrievable, and it now runs BEFORE predictions in the nightly sweep |
+| Guards keep a record | `IMPLEMENTED` | `guards.py` is where this product's central claim lives and it contained no `INSERT` of any kind: every interception was printed and discarded, so "it refuses rather than inventing" was true in the code and uncountable everywhere else. Now split into corrected, where the customer never noticed, and blocked, where the model was told no. Argument NAMES only, never values. Has not yet fired on a live call |
+| Technician can ask, not only close | `IMPLEMENTED` | Every message from a known technician went straight into `close_by_text`, so an engineer texting "any idea why this keeps tripping the breaker?" had that parsed for a cause and a labour figure. Our own record comes back first and general trade knowledge second, never blended, and a sealed pressurised system is never walked through over text. Exercised against the live book, not yet over real SMS |
+| Prospecting: finding businesses | `IMPLEMENTED` | The distress vocabulary is derived from our own 433 reported symptoms rather than written by hand, so it improves as the corpus grows. Width chosen by measurement: 40 terms caught 3 of 5 real faults with 0 false alarms, 120 caught 5 of 5 with 3. A miss costs a call never made; a false alarm means opening with "I gather you are having trouble" to a business that is not. **Has never touched the network** |
+| Trade knowledge that ENFORCES rather than advises | `IMPLEMENTED` | Each vendor's trade note is injected into the instruction, and the furniture one says the single question deciding whether a recommendation is honest is how many hours a day a chair will be sat in. It advised and enforced nothing, so the desk could quote a task chair to a 24 hour dispatch office and nothing noticed until it failed with the warranty void for exceeding a duty rating. Now a before-tool gate: an order for a chair or a screen is refused until the question is answered, with the trade reason in the refusal so the desk can ask something sensible. Policy sits in `suitability.py` where a buyer can read it, enforcement in `guards.py`, which is the Policy Pack / Authorization Engine split from arXiv 2603.20953. Fails OPEN, unlike the ownership gate: this one protects the quality of a recommendation, not somebody else's data, and the softer rule must not be the one that can break a call. Two false matches were caught only by testing: a replacement gas lift resolving to "office chair" because `parts.families` records what a part FITS, and a real chair on the shelf resolving to nothing because the catalogue match was an equality test |
+| Prospecting: the line-type gate | `IMPLEMENTED` | The TSR exempts marketer-to-business calls, and the exemption stops at the handset: no business carve-out exists for a wireless number. Fails closed to "mobile" on every path, including a missing credential and a timed-out lookup. Internal do-not-call is checked before the clock and before it will even spend money on a lookup, kept 4 years, never deleted. **No live Twilio lookup has been performed** |
 
 ### Honest caveats
 
@@ -266,6 +345,21 @@ Stolen from `aish2897/after-hours-site-continuity-fleet`, which is a good patter
   "artificial or prerecorded voice" under the TCPA, so marketing calls require
   prior express written consent; the code enforces that and exempts safety
   recalls, which are not marketing.
+- Prospecting has **never touched the network**. Every result shown comes from
+  seeded rows and a seeded line-type cache, so it has cost nothing. A real
+  sweep spends two searches per business plus a carrier lookup per number, and
+  the flag that permits paying defaults to off precisely so that finding a
+  prospect and spending money on one stay separate decisions.
+- **Calibration is empty and honestly so.** `reliability()` returns
+  `checked: 0`. Both `fault_distribution` decisions on file are the "nothing in
+  our own history matches" branch, recorded from sweeps where there is no call
+  to join through. The chain works; the desk has simply not yet taken enough
+  real service calls that a technician later closed. No curve has been
+  manufactured to fill the gap.
+- Promotions carry **no machine-readable discount**. Percentages are parsed and
+  applied; anything else is handed back as terms to read aloud, because a desk
+  that works out "so that is about 30% off" has committed the business to a
+  number nobody agreed.
 
 ## Not yet on GitHub
 

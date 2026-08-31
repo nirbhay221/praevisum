@@ -32,7 +32,8 @@ import uuid
 from datetime import datetime, timedelta
 
 from . import db
-from .domain.geo import drive_minutes, miles
+from .tenancy import the_desk
+from .roads import legs_to
 
 # Above this many machines, a customer is running an operation rather than
 # owning an appliance, and carrying one to a counter stops being realistic.
@@ -60,7 +61,7 @@ def _is_credit_account(terms: str | None) -> bool:
     return bool(t) and any(w in t for w in _CREDIT_TERMS)
 
 
-def walk_in_suitable(account_id: str) -> dict:
+def walk_in_suitable(account_id: str = "") -> dict:
     """Whether this customer should be offered the counter at all.
 
     Returns the reasoning as well as the answer, because the agent needs to
@@ -102,7 +103,7 @@ def walk_in_suitable(account_id: str) -> dict:
                    "visit, do not push it, and let them choose."}
 
 
-def nearest_branch(site_id: str, dealer_id: str = "D-REF") -> dict:
+def nearest_branch(site_id: str = "", dealer_id: str = "") -> dict:
     """The closest counter to a customer, with how far it actually is.
 
     Uses the same distance and drive time the dispatcher uses for technicians,
@@ -113,6 +114,7 @@ def nearest_branch(site_id: str, dealer_id: str = "D-REF") -> dict:
         site_id: where the customer is.
         dealer_id: whose branches.
     """
+    dealer_id = the_desk(dealer_id)
     with db.connect() as c:
         site = c.execute(
             "SELECT id, label, address, lat, lon, account_id FROM sites WHERE id=?",
@@ -129,17 +131,24 @@ def nearest_branch(site_id: str, dealer_id: str = "D-REF") -> dict:
     if site["lat"] is None:
         return {"ok": False, "why": "we have no location for that site"}
 
+    # Measured the same way the dispatcher measures a technician, which is
+    # the whole point of this function living beside that one: a customer is
+    # never told a counter is close by a different yardstick than the one that
+    # decides whether we drive to them.
+    known = [b for b in rows if b["lat"] is not None]
+    legs = legs_to((site["lat"], site["lon"]),
+                   [(b["lat"], b["lon"]) for b in known])
+
     out = []
-    for b in rows:
-        if b["lat"] is None:
-            continue
-        d = miles(site["lat"], site["lon"], b["lat"], b["lon"])
+    for b, leg in zip(known, legs):
+        d = leg["miles"]
         out.append({
             "branch_id": b["id"], "label": b["label"], "address": b["address"],
             "phone": b["phone_e164"],
-            "distance_mi": d, "drive_minutes": drive_minutes(d),
+            "distance_mi": d, "drive_minutes": leg["minutes"],
             "opens": _clock(b["opens_min"]), "closes": _clock(b["closes_min"]),
-            "too_far": d > MAX_REASONABLE_MILES,
+            # None means we could not measure it. Unknown is not near.
+            "too_far": d is None or d > MAX_REASONABLE_MILES,
         })
     if not out:
         return {"ok": False, "why": "no branch has a location on file"}
@@ -168,7 +177,7 @@ def _clock(minutes: int | None) -> str:
     return f"{hour}{suffix}" if m == 0 else f"{hour}:{m:02d}{suffix}"
 
 
-def counter_slots(branch_id: str, days: int = 5) -> dict:
+def counter_slots(branch_id: str = "", days: int = 5) -> dict:
     """When the counter is open, so a time can be agreed rather than guessed.
 
     A counter is not a diary. Nobody is booked out, so this is opening hours
@@ -200,10 +209,11 @@ def counter_slots(branch_id: str, days: int = 5) -> dict:
                     "come any time in the window."}
 
 
-def book_counter_slot(branch_id: str, account_id: str, slot_at: str,
+def book_counter_slot(branch_id: str = "", account_id: str = "",
+                      slot_at: str = "",
                       reason: str = "", asset_id: str = "",
                       work_order_id: str = "", contact_id: str = "",
-                      call_id: str = "", dealer_id: str = "D-REF") -> dict:
+                      call_id: str = "", dealer_id: str = "") -> dict:
     """Write down that somebody is coming in, so the counter expects them.
 
     Refuses if the branch is shut that day, because a booking for a closed
@@ -221,6 +231,7 @@ def book_counter_slot(branch_id: str, account_id: str, slot_at: str,
         call_id: the call this came from.
         dealer_id: whose counter.
     """
+    dealer_id = the_desk(dealer_id)
     try:
         when = datetime.fromisoformat(slot_at)
     except ValueError:

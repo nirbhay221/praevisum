@@ -13,7 +13,6 @@ import uuid
 from datetime import datetime, timedelta
 
 from . import db
-from .domain.geo import drive_minutes, miles
 from .thresholds import *  # noqa: F401,F403
 
 
@@ -372,3 +371,144 @@ def restock_advice(dealer_id: str = "D-REF", horizon_days: int = 365) -> dict:
 
 
 # ==========================================================================
+
+
+# WHAT TO PUT ON THE FLOOR, WHICH IS THE OTHER HALF
+# ==========================================================================
+
+
+def products_to_restock(dealer_id: str = "", horizon_days: int = 365) -> dict:
+    """Which MACHINES to reorder, and which to stop buying.
+
+    THE HALF THAT DID NOT EXIST.
+
+    `restock_advice` above does proper reorder-point control on SPARE PARTS
+    and nothing has ever done it for the things we actually sell.
+    product_stock has carried on_hand, on_order and lead_time_days from the
+    beginning, and no code has ever read them to decide whether to buy another
+    one. A machine could sell out and stay sold out.
+
+    AND IT ASKS THE QUESTION THE PARTS VERSION CANNOT.
+
+    Reordering on demand alone will cheerfully reorder the freezer that keeps
+    coming back. The ledger knows what each model has cost us after the sale
+    -- visits, parts, labour, returns -- and a model that costs more than it
+    earned is not a restock decision, it is a delisting decision. That is the
+    total-cost-of-ownership argument applied to our own shelf: the purchase
+    price is the smaller half of what a machine costs, and buying on price
+    alone is how a dealer ends up servicing its own margin away.
+
+    Args:
+        dealer_id: whose floor. Blank means the company on this call.
+        horizon_days: how far back to measure what sold.
+    """
+    from .tenancy import the_desk
+
+    dealer_id = the_desk(dealer_id)
+    cutoff = (datetime.now() - timedelta(days=horizon_days)).date().isoformat()
+
+    with db.connect() as c:
+        floor = [dict(r) for r in c.execute(
+            """SELECT manufacturer, model_number, family, on_hand, on_order,
+                      lead_time_days, unit_cost, list_price
+               FROM product_stock WHERE dealer_id = ?""", (dealer_id,))]
+        if not floor:
+            return {"ok": False, "why": "this company has nothing on the floor"}
+
+        sold: dict[tuple, int] = {}
+        for r in c.execute(
+                """SELECT pl.description, COUNT(*) n
+                   FROM purchase_lines pl
+                   JOIN purchase_orders po ON po.id = pl.po_id
+                   WHERE po.dealer_id = ? AND po.status <> 'cancelled'
+                     AND po.placed_at >= ?
+                   GROUP BY pl.description""", (dealer_id, cutoff)):
+            said = (r["description"] or "").lower()
+            for row in floor:
+                make = (row["manufacturer"] or "").lower()
+                model = (row["model_number"] or "").lower()
+                if make and model and make in said and model in said:
+                    key = (row["manufacturer"], row["model_number"])
+                    sold[key] = sold.get(key, 0) + r["n"]
+                    break
+
+    try:
+        from .ledger import worth_restocking
+
+        verdicts = {(v["manufacturer"], v["model_number"]): v
+                    for v in worth_restocking(dealer_id, limit=500)["products"]}
+    except Exception as e:
+        print(f"[restock] the ledger is unreadable, ordering on demand alone: "
+              f"{type(e).__name__}: {e}", flush=True)
+        verdicts = {}
+
+    order, fine, stop = [], [], []
+    for row in floor:
+        key = (row["manufacturer"], row["model_number"])
+        units = sold.get(key, 0)
+        per_day = units / horizon_days
+        lead = int(row["lead_time_days"] or 21)
+        have = (row["on_hand"] or 0) + (row["on_order"] or 0)
+
+        # The same exposure window the parts version uses: cover the lead time
+        # AND the gap until somebody looks at this again.
+        exposure = per_day * (lead + REVIEW_DAYS)
+        verdict = verdicts.get(key) or {}
+
+        line = {
+            "manufacturer": row["manufacturer"],
+            "model_number": row["model_number"],
+            "family": row["family"],
+            "sold_in_the_period": units,
+            "on_hand": row["on_hand"] or 0,
+            "on_order": row["on_order"] or 0,
+            "lead_time_days": lead,
+            "covers_until_review": round(exposure, 1),
+            "list_price": row["list_price"],
+            "cost_after_sale": verdict.get("cost_after_sale"),
+            "net": verdict.get("net"),
+        }
+
+        # THE LEDGER OUTRANKS THE DEMAND. A machine that sells well and loses
+        # money on every one is the worst thing to reorder, not the best.
+        if verdict.get("keep_stocking") is False:
+            line["verdict"] = verdict.get("verdict")
+            line["say"] = (
+                f"Do NOT reorder. It has sold {verdict.get('units_sold')} and "
+                f"cost ${verdict.get('cost_after_sale', 0):,.2f} after the "
+                f"sale against ${verdict.get('margin', 0):,.2f} of margin. "
+                "Selling more of it loses more money.")
+            stop.append(line)
+            continue
+
+        if units == 0:
+            line["say"] = ("not sold once in the period. Do not reorder, and "
+                           "ask whether it belongs on the floor at all")
+            fine.append(line)
+            continue
+
+        if have > exposure:
+            line["say"] = (f"{have} covers the {lead} day lead time plus the "
+                           f"{REVIEW_DAYS} days to the next review")
+            fine.append(line)
+            continue
+
+        line["order_now"] = max(1, round(exposure - have + per_day * REVIEW_DAYS))
+        line["say"] = (f"{have} left against {exposure:.1f} expected before "
+                       f"the next order could land")
+        order.append(line)
+
+    order.sort(key=lambda r: -(r.get("sold_in_the_period") or 0))
+
+    return {
+        "ok": True,
+        "order": order[:12],
+        "stop_stocking": stop,
+        "fine": len(fine),
+        "say": ("Order the short ones and say what the number is based on. "
+                + (f"{len(stop)} model(s) should be dropped rather than "
+                   "reordered: they cost more after the sale than they earned "
+                   "on it, and the figures are on each line."
+                   if stop else "Nothing on this floor is losing money once "
+                   "service is counted.")),
+    }

@@ -318,6 +318,20 @@ def close_by_text(technician_phone: str, message: str,
             c.execute("UPDATE work_orders SET status='closed', closed_at=? WHERE id=?",
                       (now.isoformat(timespec="seconds"), visit["work_order_id"]))
 
+    # AND WHAT IT COST US, at cost price, now that we know what was fitted.
+    #
+    # parts_used and parts.unit_cost have both existed from the beginning and
+    # nothing ever multiplied them, so a complaint carried the customer's
+    # words and no number -- and the number is what decides whether a model
+    # is worth keeping on the shelf.
+    try:
+        from .service_loop import what_it_cost
+
+        what_it_cost(visit["id"])
+    except Exception as e:
+        print(f"[textback] could not cost visit {visit['id']}: "
+              f"{type(e).__name__}: {e}", flush=True)
+
     # make it searchable straight away, so the next caller benefits from it
     indexed = False
     if repair_id:

@@ -28,6 +28,19 @@ CREATE TABLE IF NOT EXISTS equipment (
     refrigerant   TEXT,                   -- R-290 and R-600a are flammable
     capacity      TEXT,
     daily_kwh     REAL,
+
+    -- An ice machine is not rated the way a freezer is. ENERGY STAR publishes
+    -- a harvest rate and an energy figure per 100 lb of ice, so daily_kwh is
+    -- computed from the two by scripts/backfill_ice_machines. Without these
+    -- columns every ice machine in the catalogue was invisible to the tool
+    -- that recommends equipment, because it required daily_kwh and no ice
+    -- machine has one published.
+    --
+    -- Harvest rate is the sizing question people actually ask: a restaurant
+    -- wants pounds a day, never cubic feet.
+    ice_lbs_day      REAL,
+    water_gal_100lbs REAL,
+
     certified_on  TEXT,
     raw           TEXT,                   -- full original record
 

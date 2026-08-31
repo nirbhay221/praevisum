@@ -29,7 +29,19 @@ CREATE TABLE IF NOT EXISTS dealers (
     phone_e164    TEXT UNIQUE,          -- the line customers ring
     greeting_name TEXT,                 -- what the agent says out loud
     families      TEXT,                 -- comma separated: what they service
-    timezone      TEXT DEFAULT 'America/Chicago'
+    timezone      TEXT DEFAULT 'America/Chicago',
+    -- WHAT THIS TRADE KNOWS THAT THE OTHERS DO NOT.
+    --
+    -- Every vendor received a byte-identical instruction: 25,544 characters,
+    -- the same for all four. So a customer buying an office chair was
+    -- governed by rules mentioning refrigerant four times, EPA certification
+    -- five times, R-290, NSF and compressors -- and the word "chair" once.
+    --
+    -- The tenancy was in the data and in the routing and absent from the only
+    -- part that decides how the desk actually talks. This column is where a
+    -- trade's own knowledge lives, appended per call, so adding a fifth
+    -- business is a row rather than an agent.
+    trade_notes   TEXT
 );
 
 -- Every operational table belongs to exactly one dealer. Added as a column

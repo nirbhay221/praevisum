@@ -57,6 +57,28 @@ SCHEMA_FILES = [
     "schema_memory.sql",
     "schema_dispatch.sql",
     "schema_supply.sql",
+    "schema_cover.sql",
+    "schema_pricing.sql",
+    "schema_geo.sql",
+    "schema_standing.sql",
+    "schema_escalation.sql",
+    "schema_market.sql",
+    "schema_backorder.sql",
+    "schema_trades.sql",
+    "schema_aftersale.sql",
+    "schema_sourcing.sql",
+    "schema_prospect.sql",
+    "schema_guardrail.sql",
+    "schema_preference.sql",
+    "schema_book.sql",
+    "schema_roads.sql",
+    "schema_cover_sold.sql",
+    "schema_order_owner.sql",
+    "schema_offer_consent.sql",
+    "schema_job_photos.sql",
+    "schema_meanings.sql",
+    "schema_service_loop.sql",
+    "schema_ledger.sql",
 ]
 
 SCHEMA_PATH = HERE / "schema.sql"
@@ -316,7 +338,16 @@ def init() -> None:
                     raise
                 # Re-run statement by statement, skipping only the ALTERs that
                 # have already been applied.
-                for stmt in sql.split(";"):
+                #
+                # Comments are stripped BEFORE splitting. A semicolon inside a
+                # `--` comment used to split the comment in half, and the
+                # second half arrived at SQLite as a statement: a sentence
+                # reading "...stops believing us; quoting the real number..."
+                # failed as `near "quoting": syntax error`. The file was
+                # perfectly valid; only this recovery path could not read it.
+                stripped = chr(10).join(
+                    line.split("--")[0] for line in sql.splitlines())
+                for stmt in stripped.split(";"):
                     if not stmt.strip():
                         continue
                     try:

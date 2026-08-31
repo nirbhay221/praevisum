@@ -53,6 +53,7 @@ import uuid
 from datetime import datetime
 
 from . import db, trace
+from .tenancy import the_desk
 from .thresholds import VISIT_MINUTES  # noqa: F401
 
 # What a wasted trip costs, shared with the van loading so the two halves of
@@ -70,6 +71,26 @@ MIN_SUCCESS_RATE = 0.5
 MIN_MATCH = 0.35
 
 
+# What counts as provenance, and how much each is worth.
+#
+# A source has to be traceable to something a person could go and read. The
+# list is here rather than inline because it was inline once and a new source
+# was added to the table that nobody added to the check, so every procedure
+# loaded from it was silently treated as unproven and never offered.
+#
+#   recall   the federal remedy text, verbatim. The strongest, and the only
+#            one that is unambiguously a citation.
+#   manual   a published procedure for this machine, with a page reference.
+#   ifixit   community repair documentation under a Creative Commons licence,
+#            with a URL. Real and checkable, and not a manufacturer speaking
+#            about their own machine, which is why it sits below `manual`.
+#   general  ordinary trade knowledge with no document behind it, written for
+#            the seed and labelled honestly.
+DOCUMENTED = ("recall", "manual", "ifixit", "general")
+
+WEIGHT = {"recall": 1.0, "manual": 0.95, "ifixit": 0.9, "general": 0.85}
+
+
 def _nid(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:6].upper()}"
 
@@ -82,15 +103,22 @@ def _overlap(a: str, b: str) -> float:
     a loose resemblance is enough to suggest a part to carry and nowhere near
     enough to talk somebody out of a visit.
     """
-    wa = {w for w in (a or "").lower().split() if len(w) > 3}
-    wb = {w for w in (b or "").lower().split() if len(w) > 3}
+    # A trailing s is dropped before comparing. That is not semantic matching
+    # sneaking back in: "door seal" and "door seals" are the same word, and a
+    # caller who says one while the documentation says the other was being
+    # refused a procedure written for exactly their problem.
+    def words(s: str) -> set:
+        return {w[:-1] if len(w) > 4 and w.endswith("s") else w
+                for w in (s or "").lower().split() if len(w) > 3}
+
+    wa, wb = words(a), words(b)
     if not wa or not wb:
         return 0.0
     return len(wa & wb) / len(wa | wb)
 
 
 def find_remote_fix(asset_id: str, symptom: str,
-                    dealer_id: str = "D-REF") -> dict:
+                    dealer_id: str = "") -> dict:
     """Is there a documented thing the customer could do instead of a visit?
 
     Returns the procedure and its record, or an honest nothing. Never composes
@@ -102,6 +130,7 @@ def find_remote_fix(asset_id: str, symptom: str,
         symptom: the caller's words.
         dealer_id: whose book.
     """
+    dealer_id = the_desk(dealer_id)
     with db.connect() as c:
         asset = c.execute(
             """SELECT a.id, a.manufacturer, a.model_number, a.family,
@@ -150,15 +179,14 @@ def find_remote_fix(asset_id: str, symptom: str,
         #
         # And provenance never outranks failure: any fix that keeps failing is
         # withdrawn regardless of where it came from.
-        documented = f["source"] in ("recall", "manual", "general")
+        documented = f["source"] in DOCUMENTED
         failing = tried >= MIN_ATTEMPTS and worked / max(tried, 1) < MIN_SUCCESS_RATE
         earned = tried >= MIN_ATTEMPTS and worked / max(tried, 1) >= MIN_SUCCESS_RATE
 
         if failing or not (documented or earned):
             continue
 
-        score = match * {"recall": 1.0, "manual": 0.95,
-                         "general": 0.85}.get(f["source"], 0.75)
+        score = match * WEIGHT.get(f["source"], 0.75)
         if best is None or score > best[0]:
             best = (score, f, match, tried, worked)
 
@@ -190,7 +218,7 @@ def find_remote_fix(asset_id: str, symptom: str,
 
 
 def should_send_someone(asset_id: str, symptom: str,
-                        dealer_id: str = "D-REF") -> dict:
+                        dealer_id: str = "") -> dict:
     """The decision, with the arithmetic shown.
 
     Weighs a wasted trip against a customer left with a broken machine, and
@@ -203,6 +231,7 @@ def should_send_someone(asset_id: str, symptom: str,
         symptom: the caller's words.
         dealer_id: whose book.
     """
+    dealer_id = the_desk(dealer_id)
     from .reason import _fault_distribution
 
     fix = find_remote_fix(asset_id, symptom, dealer_id)
@@ -252,7 +281,7 @@ def should_send_someone(asset_id: str, symptom: str,
 
 def record_attempt(fix_id: str, outcome: str, asset_id: str = "",
                    symptom: str = "", said: str = "", call_id: str = "",
-                   work_order_id: str = "", dealer_id: str = "D-REF") -> dict:
+                   work_order_id: str = "", dealer_id: str = "") -> dict:
     """What happened when they tried it.
 
     This is the feedback that decides whether a procedure keeps being offered.
@@ -270,6 +299,7 @@ def record_attempt(fix_id: str, outcome: str, asset_id: str = "",
         work_order_id: the job, if one was opened anyway.
         dealer_id: whose book.
     """
+    dealer_id = the_desk(dealer_id)
     outcome = (outcome or "").strip().lower()
     if outcome not in ("resolved", "not_resolved", "refused", "unsafe"):
         return {"ok": False, "why": "unrecognised outcome"}

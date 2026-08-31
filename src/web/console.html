@@ -5,15 +5,49 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Praevisum</title>
 <style>
+  /* DARK IS THE DEFAULT AND LIGHT IS REAL, not an inversion.
+     A dispatcher watching a live call at 6am wants the dark one; the owner
+     reading stock at a desk by a window wants the other, and washing out the
+     dark palette to make it would leave the warnings unreadable. So the light
+     set is chosen: same hues, redrawn for a bright ground. */
   :root{
     --bg:#0B1014; --panel:#131B21; --panel2:#182229; --line:#233039;
     --ink:#DDE6EB; --ink2:#8FA0AC; --ink3:#5F717D;
     --teal:#4FBFD1; --gold:#D8A94A; --good:#4FBF98; --warn:#DB7A5A;
   }
+  :root[data-theme="light"]{
+    --bg:#F4F6F7; --panel:#FFFFFF; --panel2:#EDF1F3; --line:#D8E0E4;
+    --ink:#162026; --ink2:#4A5C68; --ink3:#7A8A95;
+    --teal:#0F7C8C; --gold:#8A6209; --good:#1E7A57; --warn:#A8451F;
+  }
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme="dark"]){
+      --bg:#F4F6F7; --panel:#FFFFFF; --panel2:#EDF1F3; --line:#D8E0E4;
+      --ink:#162026; --ink2:#4A5C68; --ink3:#7A8A95;
+      --teal:#0F7C8C; --gold:#8A6209; --good:#1E7A57; --warn:#A8451F;
+    }
+  }
+  /* The pills carry a tinted ground that only works on a dark panel. */
+  :root[data-theme="light"] .pill.gold,
+  :root[data-theme="light"] .pill.good,
+  :root[data-theme="light"] .pill.warn,
+  :root[data-theme="light"] .pill.teal,
+  :root[data-theme="light"] .pill{ background:var(--panel2) }
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme="dark"]) .pill,
+    :root:not([data-theme="dark"]) .pill.gold,
+    :root:not([data-theme="dark"]) .pill.good,
+    :root:not([data-theme="dark"]) .pill.warn,
+    :root:not([data-theme="dark"]) .pill.teal{ background:var(--panel2) }
+  }
+  #theme{background:var(--panel2);color:var(--ink2);border:1px solid var(--line);
+    border-radius:4px;padding:6px 10px;font-size:12px;cursor:pointer}
+  #theme:hover{color:var(--ink)}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
     font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
   code,.mono,.num{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+  .when{white-space:nowrap;font-variant-numeric:tabular-nums}
 
   header{display:flex;align-items:center;gap:18px;padding:14px 20px;
     border-bottom:1px solid var(--line);background:var(--panel)}
@@ -88,8 +122,68 @@
     padding:9px 15px;font-size:13px;font-weight:600;cursor:pointer}
   button:disabled{opacity:.45;cursor:default}
   .reply{padding:0 15px 13px;color:var(--ink2);font-size:13px;min-height:20px}
+  .egs{display:flex;flex-wrap:wrap;gap:6px;padding:0 15px 12px}
+  .egs span{font-size:11.5px;color:var(--ink3);border:1px solid var(--line);
+    border-radius:11px;padding:3px 9px;cursor:pointer}
+  .egs span:hover{color:var(--ink);border-color:var(--teal)}
+  tr.edit{cursor:pointer}
+  tr.edit:hover td{background:var(--panel2)}
+  tr.edit:hover td:first-child{box-shadow:inset 2px 0 0 var(--teal)}
+  .prod.edit,.lead.edit,.tech.edit{cursor:pointer}
+  .prod.edit:hover,.lead.edit:hover,.tech.edit:hover{background:var(--panel2)}
+  button.add{font-family:inherit;font-size:10.5px;letter-spacing:.03em;
+    background:transparent;color:var(--ink3);border:1px solid var(--line);
+    border-radius:11px;padding:2px 9px;margin-left:8px;cursor:pointer;
+    vertical-align:middle}
+  button.add:hover{color:var(--teal);border-color:var(--teal)}
   .reply.err{color:var(--warn)}
   .hint{padding:0 15px 12px;color:var(--ink3);font-size:11.5px}
+  .lead{padding:11px 0;border-bottom:1px solid var(--line)}
+  .lead:last-child{border-bottom:0}
+  .lead .top{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .lead .who{font-weight:600}
+  .lead .where{color:var(--ink3);font-size:11.5px}
+  .lead .quote{margin:6px 0;padding:6px 10px;border-left:2px solid var(--teal);
+    color:var(--ink2);font-style:italic;font-size:12px}
+  .lead ul{margin:5px 0 0;padding-left:16px;font-size:12px;color:var(--ink2)}
+  .lead li{margin:3px 0}
+  .lead .no{color:var(--warn)}
+  .rank{font-variant-numeric:tabular-nums;font-size:11px}
+  .tech{padding:9px 0;border-bottom:1px solid var(--line)}
+  .tech:last-child{border-bottom:0}
+  .tech .who{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+  .tech .nm{font-weight:600;font-size:12.5px}
+  .tech .base{color:var(--ink3);font-size:11px}
+  .tech .on{color:var(--ink2);font-size:11.5px;margin-top:3px}
+  .tech .bad{color:var(--warn);font-size:11.5px;margin-top:4px}
+  .prod{padding:8px 0;border-bottom:1px solid var(--line);
+    display:grid;grid-template-columns:auto 1fr;gap:0 10px;align-items:start}
+  .prod > .t, .prod > .ev, .prod > .said, .prod > .whys{grid-column:2}
+  .prod:not(:has(.shot)) > *{grid-column:1/-1}
+  .shot{grid-row:1/span 4;width:56px;height:56px;object-fit:contain;
+    background:var(--panel2);border:1px solid var(--line);border-radius:4px}
+  .prod:last-child{border-bottom:0}
+  .prod .t{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+  .prod .nm{font-size:12.5px}
+  .prod .mk{color:var(--ink3);font-size:11px}
+  .prod .ev{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+  .prod .said{color:var(--ink2);font-size:11px;font-style:italic;margin-top:3px}
+  #fam{margin:0 0 10px;width:100%}
+  .lane{font-size:10.5px;font-weight:600;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--ink3);margin:4px 2px 8px;
+    padding-top:4px}
+  .lane:first-of-type{margin-top:0}
+  .stop{display:grid;grid-template-columns:52px 1fr;gap:0 10px;padding:8px 0;
+    border-bottom:1px solid var(--line);align-items:baseline}
+  .stop:last-child{border-bottom:0}
+  .stop .n{font-variant-numeric:tabular-nums;font-weight:600;text-align:right}
+  .stop .means{font-size:12.5px}
+  .stop .kind{font-family:ui-monospace,monospace;font-size:10.5px;color:var(--ink3)}
+  .stop.b .n{color:var(--warn)}
+  .stop.c .n{color:var(--good)}
+  .whys{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 2px}
+  .why{font-size:10.5px;color:var(--ink3);border:1px solid var(--line);
+    border-radius:3px;padding:2px 6px}
   .empty{color:var(--ink3);font-size:12.5px;padding:6px 0}
 </style>
 </head>
@@ -97,17 +191,199 @@
 
 <header>
   <h1>Praevisum</h1>
-  <span class="sub">field service desk</span>
+  <span class="sub">one number, four businesses</span>
   <span class="sub"><span class="dot" id="live"></span> <span id="livetext">connecting</span></span>
   <select id="dealer"></select>
+  <button id="theme" title="Switch between light and dark">theme</button>
 </header>
 
 <div class="wrap">
   <div>
-    <div class="card">
+    <div class="card wide">
       <h2>Today <span id="phone" class="pill"></span></h2>
       <div class="stats" id="stats"></div>
     </div>
+
+    <div class="card wide">
+      <h2>Change something <span class="pill teal">21 things it can do</span></h2>
+      <form class="ask" id="ask">
+        <input type="text" id="cmd" autocomplete="off"
+               placeholder="say what changed, in your own words">
+        <button id="send">Send</button>
+      </form>
+      <div class="reply" id="reply"></div>
+      <div class="egs" id="egs">
+        <span>door gaskets are 92 now</span>
+        <span>we got 12 door gaskets in</span>
+        <span>10 percent off gaskets until the 30th</span>
+        <span>the TSU-72 is 4300 now</span>
+        <span>add Vasquez Catering, a business, net 30</span>
+        <span>hire Priya Raman, mobile +16175550142</span>
+        <span>Corner Grocers said yes, I spoke to Dana, they want a walk-in</span>
+        <span>The Lantern Room are not interested</span>
+      </div>
+      <div class="hint">Typed in plain words, not filled into a form. Parts,
+        prices, offers, machines, customers, the crew and leads are all changed
+        from here, and every change is written by the same tools the tests
+        cover. Click an example to try it.
+        <br>Adding is not the same as correcting: a new machine needs a
+        manufacturer, a new customer needs to be a business or a person, a new
+        engineer needs a phone or an email. It will ask rather than guess, and
+        if a change is refused it says so instead of reporting it as done.</div>
+    </div>
+
+    <div class="card wide" id="demobox" style="display:none">
+      <h2>Stand in for someone outside <span class="pill warn">demo controls</span></h2>
+      <div class="body">
+        <div class="egs" id="demo">
+          <span data-demo="carrier_delivered">UPS: this order arrived</span>
+          <span data-demo="engineer_closes">Engineer: job done</span>
+          <span data-demo="engineer_asks">Engineer: I have a question</span>
+        </div>
+        <div class="reply" id="demoreply"></div>
+      </div>
+      <div class="hint">Two steps in the loop are done by people who are not
+        in the room: a carrier posting a tracking event, and an engineer
+        replying to the text they were sent. Without a UPS account or the
+        engineer's phone those steps are invisible and the chain looks broken.
+        <br>Each button runs <b>the same function the real path runs</b>.
+        Nothing is faked or pre-baked; the only thing simulated is who pressed
+        it. Off unless the server has demo controls enabled.</div>
+    </div>
+
+    <div class="lane">What it decided</div>
+
+    <div class="card">
+      <h2>What the desk refused
+        <span class="pill warn" id="stopblocked">0</span>
+        <span class="pill good" id="stopfixed">0</span>
+      </h2>
+      <div class="body" id="stopped"></div>
+      <div class="hint">Two different things. <b>Put right</b> means the
+        customer never knew: an identifier supplied so nobody was asked for an
+        Asset ID, a tool sent to the business the call was routed to.
+        <b>Refused</b> means the model was told no and had to do something
+        else. Every one is a row, not a log line.</div>
+    </div>
+
+    <div class="card">
+      <h2>Worth a call today <span class="pill teal" id="huntcount">0</span></h2>
+      <div class="body" id="hunt"></div>
+      <div class="hint">Businesses that are not customers yet, found from what
+        they said in public. Ranked by evidence, never by size. Where the desk
+        is blocked the restriction is on an artificial voice, not on you.
+        <br>The number is an ordering score and <b>not a probability</b>:
+        nothing here has been rung and followed up, so any percentage would be
+        invented. What it is made of is listed under each one.</div>
+    </div>
+
+    <div class="card">
+      <h2>Dangerous, before the recall
+        <span class="pill warn" id="hazcount">0</span></h2>
+      <div class="body" id="hazards"></div>
+      <div class="hint">Complaints your own customers made, grouped by model
+        and read for danger in the words the CPSC actually uses. One person
+        saying their cooler smells hot is an incident; two on the same model
+        from different sites is a pattern, and you are the only party who can
+        see it. A federal notice for the same fault arrives later, if it
+        arrives at all.
+        <br>Everyone who owns one is rung, whether or not they complained and
+        whether or not they agreed to marketing, because a safety call is not
+        marketing. The night sweep queues those calls and assigns the swaps.
+        Opening this screen rings nobody.</div>
+    </div>
+
+    <div class="card">
+      <h2>About to ring, and why
+        <span class="pill teal" id="qcount">0</span></h2>
+      <div class="body" id="queue"></div>
+      <div class="hint">Existing customers the desk is going to interrupt, in
+        the order it will work through them. Not the same list as the hunt
+        above: those are businesses who are not customers yet.
+        <br>The <b>suggestion</b> rows are the only commercial ones. They come
+        from what customers like them run and they do not, need at least three
+        customers behind them before they are raised at all, and go to any one
+        customer at most once a month. Everything else here is a safety notice
+        or a fault, and goes out whatever they said about marketing.</div>
+    </div>
+
+    <div class="lane">Who it can send</div>
+
+    <div class="card">
+      <h2>The crew <span class="pill teal" id="crewcount">0</span>
+        <button class="add" data-say="hire NAME, mobile +1">hire</button></h2>
+      <div class="body" id="crew"></div>
+      <div class="hint">EPA 608 is what legally permits opening a refrigerant
+        circuit and its types are not interchangeable. Anything flagged red is
+        somebody rostered for work their certificate does not cover: the desk
+        already refuses to promise that visit, but the rota still says they do
+        it.</div>
+    </div>
+
+    <div class="lane">Who it deals with</div>
+
+    <div class="card wide">
+      <h2>May we send them offers <span class="pill teal" id="conscount">0</span>
+        <span class="pill warn" id="conswait"></span></h2>
+      <div class="body"><table id="consent"></table></div>
+      <div class="hint">An AI voice counts as an artificial or prerecorded
+        voice, so a MARKETING call needs prior express written consent, while
+        agreeing on a service call only lets us ring somebody about their own
+        equipment. The two are stored separately for that reason. The question
+        is asked once, shortly after an order completes, and it is their reply
+        to the text -- not what they said on the phone -- that becomes the
+        record. A refusal shows as loudly as an agreement, so nobody asks
+        twice.</div>
+    </div>
+
+    <div class="card wide">
+      <h2>Waiting on a customer <span class="pill teal" id="fupcount">0</span>
+        <span class="pill warn" id="fupwait"></span>
+        <button class="add" id="fupsend">send the unsent</button></h2>
+      <div class="body"><table id="followups"></table></div>
+      <div class="hint">Questions we have put to a customer and not yet had an
+        answer to. A delivery check-in asks whether the right thing arrived in
+        one piece; an after-visit check asks the one thing the database cannot
+        answer for itself, whether the repair held. A customer who never
+        replies is not the same as one who replied "no", and a fix that failed
+        twice should stop being offered, which cannot happen if nobody can see
+        that the question went unanswered.</div>
+    </div>
+
+    <div class="card wide">
+      <h2>Orders <span class="pill teal" id="ordcount">0</span>
+        <span class="pill warn" id="orddrafts"></span></h2>
+      <div class="body"><table id="orders"></table></div>
+      <div class="hint">What customers have actually bought. A draft is an
+        order the desk raised and read back but nobody confirmed, usually
+        because the call ended in between: <b>approve</b> confirms it exactly
+        as the desk would have, sourcing anything we do not hold and putting
+        it on their account. A machine only becomes <b>theirs</b> when it is
+        delivered, which is why an order can be paid for and still not be a
+        machine standing in their kitchen.</div>
+    </div>
+
+    <div class="card">
+      <h2>On the book <span class="pill teal" id="custcount">0</span>
+        <button class="add" data-say="add NAME as a business on net 30">new customer</button></h2>
+      <div class="body"><table id="customers"></table></div>
+      <div class="hint">Customers, ordered by how much work they have put
+        through. Anything marked <b>won from a lead</b> started as a business
+        found from what it said in public, rung, and booked in. Closing a
+        customer never deletes them, because their work orders are how a
+        warranty claim gets answered two years later.</div>
+    </div>
+
+    <div class="card">
+      <h2>What people asked for <span class="pill teal" id="wantcount">0</span></h2>
+      <div class="body" id="wants"></div>
+      <div class="hint">Said on a call, or when a lead was booked in, and kept
+        in their words rather than turned into a quote nobody asked for. This
+        is the end of the chain a promotion starts: a reason to ring, a call,
+        a name, and the thing they actually want.</div>
+    </div>
+
+    <div class="lane">What it is working on</div>
 
     <div class="card">
       <h2>Open jobs</h2>
@@ -115,32 +391,82 @@
     </div>
 
     <div class="card">
-      <h2>Parts and prices <span class="pill" id="partcount"></span></h2>
+      <h2>What it costs us after the sale
+          <span class="pill" id="losstotal"></span></h2>
+      <div class="body">
+        <div id="lossnote" class="dim"
+             style="padding:0 0 10px 0;font-size:13px"></div>
+        <table id="losses"></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Engineer visits <span class="pill" id="advicescore"></span></h2>
+      <div class="body">
+        <div id="advicenote" class="dim"
+             style="padding:0 0 10px 0;font-size:13px"></div>
+        <table id="visits"></table>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>Live <span class="pill teal" id="evcount">0</span></h2>
+      <div id="feed"><div class="empty">waiting for a call</div></div>
+    </div>
+
+    <div class="lane">What it holds</div>
+
+    <div class="card">
+      <h2>On the floor <span class="pill teal" id="floorcount">0</span>
+        <button class="add" data-say="add MODEL by MAKER at PRICE">new machine</button></h2>
+      <div class="body">
+        <select id="fam"></select>
+        <div id="floor"></div>
+      </div>
+      <div class="hint">Machines for sale, with our own record attached: a
+        recalled model sorts first and must not be sold, complaints are our
+        customers in their own words, and ratings or market prices are
+        somebody else's opinion kept in their own column.</div>
+    </div>
+
+    <div class="card">
+      <h2>Parts and prices <span class="pill" id="partcount"></span>
+        <button class="add" data-say="add a part called NAME, 54.75, 3 day lead">new part</button></h2>
       <div class="body"><table id="parts"></table></div>
     </div>
 
     <div class="card">
-      <h2>Offers running</h2>
+      <h2>Offers running
+        <button class="add" data-say="10 percent off SOMETHING until the 30th">new offer</button></h2>
       <div class="body"><table id="promos"></table></div>
-      <form class="ask" id="ask">
-        <input type="text" id="cmd" autocomplete="off"
-               placeholder="tell it what changed, e.g. door gaskets are 92 now">
-        <button id="send">Send</button>
-      </form>
-      <div class="reply" id="reply"></div>
       <div class="hint">The console is the only place an offer can be created.
         The phone agent can read offers and never write them.</div>
     </div>
-  </div>
-
-  <div class="card">
-    <h2>Live <span class="pill teal" id="evcount">0</span></h2>
-    <div id="feed"><div class="empty">waiting for a call</div></div>
   </div>
 </div>
 
 <script>
 const $ = s => document.querySelector(s);
+
+// The viewer's own choice wins over the operating system, and it survives a
+// reload. Without the stored value the page follows prefers-color-scheme,
+// which is the right default for somebody who has never touched the button.
+(function theme(){
+  try{
+    const saved = localStorage.getItem('praevisum-theme');
+    if(saved) document.documentElement.setAttribute('data-theme', saved);
+  }catch(e){}
+  document.addEventListener('click', e => {
+    if(!e.target || e.target.id !== 'theme') return;
+    const root = document.documentElement;
+    const dark = getComputedStyle(root).getPropertyValue('--bg').trim().startsWith('#0');
+    const next = dark ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try{ localStorage.setItem('praevisum-theme', next); }catch(e){}
+  });
+})();
 let dealer = null, es = null, n = 0;
 
 async function boot(){
@@ -155,12 +481,15 @@ async function refresh(){
   const s = await (await fetch(`/api/snapshot?dealer=${dealer}`)).json();
   $('#phone').textContent = s.dealer.phone_e164 || '';
   const st = s.stats || {};
+  const fmt = v => (v??0).toLocaleString();
   $('#stats').innerHTML = [
-    ['customers', st.customers], ['technicians', st.techs],
-    ['open jobs', st.open_jobs], ['calls', st.calls],
-    ['repairs learned', st.repairs],
+    ['customers', fmt(st.customers)], ['technicians', fmt(st.techs)],
+    ['open jobs', fmt(st.open_jobs)], ['calls taken', fmt(st.calls)],
+    ['repairs learned', fmt(st.repairs)],
+    ['machines known', fmt(st.machines_known)],
+    ['recalls watched', fmt(st.recalls_watched)],
     ['first-visit fix', s.first_visit_fix != null ? s.first_visit_fix+'%' : '-', true]
-  ].map(([l,v,hl])=>`<div class="stat ${hl?'hl':''}"><div class="n">${v??0}</div><div class="l">${l}</div></div>`).join('');
+  ].map(([l,v,hl])=>`<div class="stat ${hl?'hl':''}"><div class="n">${v}</div><div class="l">${l}</div></div>`).join('');
 
   $('#jobs').innerHTML = s.open_jobs.length
     ? `<tr><th>Job</th><th>Customer</th><th>Reported</th></tr>` + s.open_jobs.map(j=>
@@ -171,7 +500,8 @@ async function refresh(){
   $('#partcount').textContent = s.parts.length + ' parts';
   $('#parts').innerHTML = `<tr><th>Part</th><th>SKU</th><th class="r">Price</th>
       <th class="r">Stock</th><th class="r">Lead</th></tr>` +
-    s.parts.map(p=>`<tr><td class="name">${p.name}</td>
+    s.parts.map(p=>`<tr class="edit" data-say="${p.name} are NEWPRICE now">
+      <td class="name">${p.name}</td>
       <td><span class="pill">${p.sku}</span></td>
       <td class="r">$${p.unit_cost.toFixed(2)}</td>
       <td class="r">${p.on_hand}</td>
@@ -179,12 +509,594 @@ async function refresh(){
 
   $('#promos').innerHTML = s.promotions.length
     ? `<tr><th>Offer</th><th>Applies to</th><th class="r">Ends</th></tr>` +
-      s.promotions.map(p=>`<tr><td class="name">${p.headline}
+      s.promotions.map(p=>`<tr class="edit" data-say="stop the offer ${p.headline}">
+        <td class="name">${p.headline}
         <div style="color:var(--ink3);font-size:11.5px">${p.detail||''}</div></td>
         <td>${p.parts||'<span style="color:var(--ink3)">general</span>'}</td>
         <td class="r"><span class="pill gold">${p.ends}</span></td></tr>`).join('')
     : `<tr><td class="empty">no offers running</td></tr>`;
+
+  hunting().catch(()=>{});
+  stopped().catch(()=>{});
+  floor().catch(()=>{});
+  crew().catch(()=>{});
+  orders().catch(()=>{});
+  visits().catch(()=>{});
+  losses().catch(()=>{});
+  followups().catch(()=>{});
+  consent().catch(()=>{});
+  book().catch(()=>{});
+  hazards().catch(()=>{});
+  queue().catch(()=>{});
+  demo().catch(()=>{});
 }
+
+let famPick = '';
+async function demo(){
+  // Only shown when the server says the controls are on. A dead button is
+  // worse than no button.
+  const probe = await (await fetch('/api/demo', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({what:'probe'})})).json();
+  if(String(probe.why||'').includes('demo controls are off')) return;
+  $('#demobox').style.display = '';
+}
+
+async function fireDemo(what){
+  const ref = prompt(
+    what === 'carrier_delivered'
+      ? 'Which order arrived? Leave blank for the most recent one waiting.'
+      : 'Which engineer? (their mobile, e.g. +1857...)',
+    '');
+  // Blank is a real answer for a carrier: the server picks the newest order
+  // that is confirmed and undelivered. Cancel still cancels, which is why
+  // this tests for null rather than for emptiness.
+  if(ref === null) return;
+  if(!ref && what !== 'carrier_delivered') return;
+  const text = what === 'carrier_delivered' ? ''
+    : prompt('What did they say?', what === 'engineer_asks'
+        ? 'what refrigerant is in this one?'
+        : 'Done. Swapped the part, running cold now.') || '';
+  $('#demoreply').textContent = 'sending...';
+  const r = await (await fetch('/api/demo', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({what, ref, text, dealer})})).json();
+  $('#demoreply').textContent =
+    (r.ok === false ? 'refused: ' : 'done: ') +
+    (r.why || r.say || r.note || JSON.stringify(r).slice(0,220));
+  refresh();
+}
+
+async function queue(){
+  const q = await (await fetch(`/api/queue?dealer=${dealer}&limit=40`)).json();
+  const rows = q.queued || [];
+  $('#qcount').textContent = rows.length;
+
+  const label = {hazard:'danger', recall:'recall', prediction:'likely fault',
+                 offer:'suggestion'};
+  const tone  = {hazard:'warn', recall:'warn', prediction:'', offer:'gold'};
+
+  const tally = Object.entries(q.counts || {})
+    .map(([k,n]) => `<span class="pill ${tone[k]||''}">${n} ${label[k]||k}</span>`)
+    .join(' ');
+
+  $('#queue').innerHTML = rows.length
+    ? `<div class="whys" style="margin-bottom:10px">${tally}</div>` +
+      rows.map(r => `<div class="lead">
+        <div class="top">
+          <span class="pill ${tone[r.kind]||''}">${label[r.kind]||r.kind}</span>
+          <span class="who">${r.account}</span>
+          <span class="where">${r.contact||''}</span>
+        </div>
+        <div class="quote">${r.reason||''}</div>
+        ${r.evidence ? `<div class="kind">${r.evidence}</div>` : ''}
+      </div>`).join('')
+    : '<div class="empty">nothing queued. The sweep runs overnight and fills '
+      + 'this from recalls, faults it can see coming, and what similar '
+      + 'customers run</div>';
+}
+
+async function hazards(){
+  const h = await (await fetch(`/api/hazards?dealer=${dealer}`)).json();
+  const ps = h.patterns || [];
+  $('#hazcount').textContent = ps.length;
+  $('#hazards').innerHTML = ps.length ? ps.map(p => `<div class="lead">
+      <div class="top">
+        <span class="pill warn">${p.dangerous_reports} dangerous</span>
+        <span class="who">${p.manufacturer} ${p.model_number}</span>
+        <span class="where">${p.family||''} &middot; ${p.households} sites reporting</span>
+        ${p.flammable_charge ? '<span class="pill warn">flammable charge</span>' : ''}
+      </div>
+      ${(p.reports||[]).slice(0,2).map(r =>
+        `<div class="quote">${r.said}</div>`).join('')}
+      <ul>
+        <li><b>${(p.owners||[]).length}</b> customers own one of these, including
+          the ${Math.max(0,(p.owners||[]).length - p.households)} who have not rung</li>
+        <li>every one of them is queued for a safety call tonight</li>
+      </ul>
+    </div>`).join('')
+    : '<div class="empty">nothing on the book is drawing dangerous complaints '
+      + 'from more than one site</div>';
+}
+
+function fill(text){
+  const box = $('#cmd');
+  box.value = text;
+  box.focus();
+  // Select the first ALL-CAPS placeholder so the next keystroke replaces it.
+  const m = /[A-Z]{3,}[0-9]*/.exec(text);
+  if(m) box.setSelectionRange(m.index, m.index + m[0].length);
+  else box.setSelectionRange(text.length, text.length);
+  box.scrollIntoView({block:'center', behavior:'smooth'});
+}
+
+async function consent(){
+  const c = await (await fetch(`/api/consent?dealer=${dealer}&limit=25`)).json();
+  const rows = c.consent || [];
+  $('#conscount').textContent = rows.length;
+  $('#conswait').textContent = c.may_offer ? `${c.may_offer} we may offer to` : '';
+  $('#conswait').style.display = c.may_offer ? '' : 'none';
+
+  $('#consent').innerHTML = rows.length ? rows.map(r => {
+    const pill = r.may_we_offer
+      ? '<span class="pill good">offers allowed</span>'
+      : r.state === 'refused'
+        ? '<span class="pill warn">said no</span>'
+        : r.may_we_ring_about_their_own_kit
+          ? '<span class="pill">their own kit only</span>'
+          : '<span class="pill">not asked</span>';
+    return `<tr>
+      <td>${r.customer || ''}</td>
+      <td>${pill}</td>
+      <td class="dim">${r.where}</td>
+      <td class="dim">${r.answer ? String(r.answer).slice(0,44) : ''}</td></tr>`;
+  }).join('') : '<tr><td class="empty">nobody has been asked yet</td></tr>';
+}
+
+async function followups(){
+  const f = await (await fetch(`/api/followups?dealer=${dealer}&limit=25`)).json();
+  const rows = f.followups || [];
+  $('#fupcount').textContent = rows.length;
+  $('#fupwait').textContent = f.waiting ? `${f.waiting} unanswered` : '';
+  $('#fupwait').style.display = f.waiting ? '' : 'none';
+
+  $('#followups').innerHTML = rows.length ? rows.map(r => `<tr>
+      <td>${r.customer || r.contact || r.phone || ''}</td>
+      <td class="dim">${r.asking}</td>
+      <td>${r.answered
+            ? '<span class="pill good">answered</span>'
+            : '<span class="pill warn">waiting</span>'}</td>
+      <td class="dim">${r.reply ? String(r.reply).slice(0,60) : ''}</td>
+      <td class="dim">${r.sent_via || ''}</td></tr>`).join('')
+    : '<tr><td class="empty">nothing outstanding with a customer</td></tr>';
+
+  // Nothing on this box runs the sender on a schedule, so the queue only
+  // moves when somebody asks it to. Undeliverable items stay queued.
+  const b = $('#fupsend');
+  b.onclick = async () => {
+    b.disabled = true; b.textContent = 'sending...';
+    const r = await (await fetch('/api/followups/send', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({dealer, now: true})})).json();
+    b.disabled = false; b.textContent = 'send the unsent';
+    const n = (r.sent || []).length, f = (r.failed || []).length;
+    $('#fupwait').style.display = '';
+    $('#fupwait').textContent = `${n} sent` + (f ? `, ${f} could not be` : '');
+    followups();
+  };
+}
+
+// WHEN IT HAPPENED, WHICH THE ORDERS TABLE NEVER SAID.
+//
+// Six identical rows for the same customer and nothing on the screen to tell
+// you whether that is six mistakes this morning or six months of trade. A row
+// somebody is being asked to approve or cancel is not actionable without the
+// moment it was raised.
+//
+// Shows the moment that matters for the state the order is in: when it was
+// confirmed if it was, when it was raised if it is still a draft. Those are
+// different questions and the draft one is the one waiting on a person.
+//
+// Times are stored as local wall clock with no zone on them, so they are
+// parsed as local rather than handed to Date() to guess -- an order raised at
+// six in the evening should not read as two in the morning.
+// $0.00 IS NOT A PRICE, IT IS A MISSING ONE.
+//
+// The board showed a Razer Blade 18 confirmed at $0.00. Nothing on that row
+// said whether the laptop was free, discounted to nothing, or simply never
+// priced -- and it was never priced, because the line was written from a
+// stock handle that did not resolve. Rendering that as a currency amount
+// makes a hole in the data look like a decision somebody made.
+function money(r){
+  const has = (r.lines || []).length > 0;
+  if (r.subtotal == null || (r.subtotal === 0 && has))
+    return '<span class="pill warn">not priced</span>';
+  return '$' + Number(r.subtotal).toLocaleString(undefined,
+    {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function moment(ts){
+  if (!ts) return '';
+  // A STAMP THAT SAYS WHICH ZONE IT IS IN. The server runs UTC and the
+  // reader does not, so an order taken at 12:58 in the afternoon showed as
+  // 5:58 in the evening until /api/orders started labelling these. When the
+  // label is there, let Date do the conversion; it is the one case where it
+  // is not guessing.
+  if (/[Zz]$|[+-]\d{2}:?\d{2}$/.test(String(ts).trim())){
+    const z = new Date(ts);
+    if (!isNaN(z)) return _say(z);
+  }
+  const m = String(ts).match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!m) return String(ts);
+  const t = new Date(+m[1], +m[2]-1, +m[3], +(m[4]||0), +(m[5]||0), +(m[6]||0));
+  // A date with no time on it should say the date, not midnight.
+  if (m[4] === undefined)
+    return t.toLocaleDateString([], {month:'short', day:'numeric'});
+  return _say(t);
+}
+
+function _say(t){
+  const now = new Date();
+  const day = d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  const hm = t.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  const before = new Date(now); before.setDate(before.getDate() - 1);
+  if (day(t) === day(now)) return hm;
+  if (day(t) === day(before)) return 'yesterday ' + hm;
+  return t.toLocaleDateString([], {month:'short', day:'numeric'}) + ', ' + hm;
+}
+
+async function losses(){
+  const d = await (await fetch(`/api/losses?dealer=${dealer}&limit=8`)).json();
+  const by = d.by_product || [], stop = d.stop_stocking || [];
+
+  $('#losstotal').className = 'pill ' + (stop.length ? 'warn' : '');
+  $('#losstotal').textContent = '$' + Number(d.total||0).toLocaleString(
+    undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+
+  // The verdict needs the sample size beside it or it is not arguable by
+  // whoever reads it. Three sold and one bad callout is one bad callout.
+  $('#lossnote').textContent = stop.length
+    ? `Stop stocking: ${stop.join(', ')}. These cost more after the sale than `
+      + `they earned on it.`
+    : 'Money spent after the sale, at cost: visits, parts, labour and returns. '
+      + 'Nothing on this floor is losing money once service is counted.';
+
+  $('#losses').innerHTML = by.length ? by.map(r => {
+    const who = r.manufacturer
+      ? `${r.manufacturer} ${r.model_number||''}`
+      : '<span class="dim">not attributed to a model</span>';
+    const parts = [];
+    if (r.visits)   parts.push(`${r.visits} visit${r.visits===1?'':'s'}`);
+    if (r.returns_) parts.push(`${r.returns_} return${r.returns_===1?'':'s'}`);
+    if (r.claims)   parts.push(`${r.claims} claim${r.claims===1?'':'s'}`);
+    return `<tr>
+      <td>${who}</td>
+      <td class="dim">${parts.join(', ') || 'no breakdown'}</td>
+      <td class="num">$${Number(r.cost||0).toLocaleString(undefined,
+        {minimumFractionDigits:2, maximumFractionDigits:2})}</td></tr>`;
+  }).join('') : '<tr><td class="empty" colspan="3">nothing on the ledger yet</td></tr>';
+}
+
+async function visits(){
+  const v = await (await fetch(`/api/visits?dealer=${dealer}&limit=12`)).json();
+  const rows = v.visits || [];
+  const a = v.advice || {};
+
+  // TWO NUMBERS, NOT ONE, and the expensive one first. A part fitted that we
+  // never named is a part that was not on the van, which is a second visit.
+  // A part we named that nobody used only wastes van space. Averaging them
+  // reports something true of neither.
+  if (a.judged === 0 || a.advised == null){
+    $('#advicescore').textContent = 'not scored yet';
+    $('#advicenote').textContent =
+      'No closed visit yet has both a recorded recommendation and a recorded '
+      + 'fitting, so there is nothing to score.';
+  } else {
+    const had = Math.round((a.advised_of_fitted ?? 0) * 100);
+    const used = Math.round((a.fitted_of_advised ?? 0) * 100);
+    $('#advicescore').className = 'pill ' + (had >= 80 ? 'good' : 'warn');
+    $('#advicescore').textContent = `${had}% of fitted parts were on the van`;
+    $('#advicenote').textContent =
+      `Of everything engineers actually fitted, ${had}% is something we told `
+      + `them to take. Of everything we told them to take, ${used}% got used. `
+      + `Across ${a.visits} visit${a.visits === 1 ? '' : 's'}.`;
+  }
+
+  $('#visits').innerHTML = rows.length ? rows.map(r => {
+    const advised = (r.advised||[]).map(p => p.name || p.sku);
+    const fitted  = (r.fitted ||[]).map(p => p.name || p.sku);
+    const state = r.open
+      ? '<span class="pill warn">on the van</span>'
+      : `<span class="pill good">${r.outcome || 'closed'}</span>`;
+    const money = r.cost
+      ? `<span class="num">$${Number(r.cost).toLocaleString(undefined,
+          {minimumFractionDigits:2, maximumFractionDigits:2})}</span>`
+      : '<span class="dim">not costed</span>';
+
+    const box = r.open
+      ? `<tr><td colspan="4" style="padding-top:0">
+           <input type="text" class="closebox" data-visit="${r.id}"
+                  placeholder="What did you find, what did you fit, how many hours?"
+                  style="width:72%">
+           <button class="add" data-close="${r.id}">approve and close</button>
+           <span class="dim closesaid" data-said="${r.id}"></span>
+         </td></tr>`
+      : '';
+
+    return `<tr>
+      <td>${r.customer || ''}<div class="dim">${r.machine || (r.manufacturer||'') + ' ' + (r.model_number||'')}</div></td>
+      <td class="dim">told to take: ${advised.join(', ') || 'nothing'}
+        <div>${r.open ? '' : 'fitted: ' + (fitted.join(', ') || 'nothing')}</div></td>
+      <td>${state}</td>
+      <td class="num">${money}</td></tr>${box}`;
+  }).join('') : '<tr><td class="empty" colspan="4">no visits on the book</td></tr>';
+
+  $('#visits').querySelectorAll('[data-close]').forEach(b => {
+    b.onclick = async () => {
+      const id = b.getAttribute('data-close');
+      const box = $(`.closebox[data-visit="${id}"]`);
+      const said = (box && box.value || '').trim();
+      const note = $(`.closesaid[data-said="${id}"]`);
+      if (!said){
+        note.textContent = 'Type what was found and fitted first.';
+        return;
+      }
+      b.disabled = true; b.textContent = 'closing...';
+      const r = await (await fetch('/api/visits/close', {method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({visit:id, said})})).json();
+      b.disabled = false; b.textContent = 'approve and close';
+      note.textContent = r.ok
+        ? `closed. cost $${(r.cost && r.cost.total || 0).toFixed(2)}`
+        : (r.why || 'could not close it');
+      if (r.ok) visits();
+    };
+  });
+}
+
+async function orders(){
+  const o = await (await fetch(`/api/orders?dealer=${dealer}&limit=25`)).json();
+  const rows = o.orders || [];
+  $('#ordcount').textContent = rows.length;
+  $('#orddrafts').textContent = o.drafts ? `${o.drafts} waiting on you` : '';
+  $('#orddrafts').style.display = o.drafts ? '' : 'none';
+
+  $('#orders').innerHTML = rows.length ? rows.map(r => {
+    const what = (r.lines||[]).map(l =>
+      `${l.qty} x ${l.description}`).join(', ') || 'no lines';
+    const state = r.status === 'cancelled'
+      ? '<span class="pill">cancelled</span>'
+      : r.theirs
+      ? '<span class="pill good">theirs</span>'
+      : r.status === 'draft'
+        ? '<span class="pill warn">draft</span>'
+        : `<span class="pill">${r.status}</span>`;
+    // Approve is not the only answer. An order raised in error needs a way
+    // off the board, and a screen whose only action is yes is a formality
+    // rather than a decision.
+    // A delivered order cannot be cancelled -- there is a machine in
+    // somebody's kitchen -- so it gets the only honest action instead.
+    // A BUTTON THAT CAN ONLY FAIL IS WORSE THAN NO BUTTON.
+    //
+    // An order carrying a line nobody could price cannot be approved --
+    // confirm_purchase_order refuses it, correctly, because a $0 line reaches
+    // invoicing at $0. The board offered approve on it anyway, so the only
+    // way to find out was to press it and be told no.
+    const priced = (r.lines || []).every(l => l.unit_price > 0);
+    const act = (r.status === 'draft' || r.status === 'confirmed')
+      ? (priced
+          ? `<button class="add" data-approve="${r.id}">approve</button>`
+          : `<span class="dim" title="a line on this order has no price, so it cannot be approved">cannot approve</span>`) +
+        ` <button class="add" data-reject="${r.id}" title="cancel this order">&times;</button>`
+      : r.status === 'delivered'
+        ? `<button class="add" data-return="${r.id}" title="take it back and off their account">take it back</button>`
+        : '';
+    // The draft is dated from when it was raised, everything else from when
+    // it was agreed. The full stamps go in the tooltip so the short form can
+    // stay short without losing the detail somebody occasionally needs.
+    const at = r.status === 'draft' ? r.placed_at
+             : (r.confirmed_at || r.placed_at);
+    const fully = `raised ${r.placed_at || 'unknown'}` +
+      (r.confirmed_at ? `, confirmed ${r.confirmed_at}` : '') +
+      (r.delivered_on ? `, delivered ${r.delivered_on}` : '');
+    return `<tr>
+      <td>${r.customer}</td>
+      <td class="dim">${what}</td>
+      <td>${state}</td>
+      <td class="dim when" title="${fully}">${moment(at)}</td>
+      <td class="num">${money(r)}</td>
+      <td>${act}</td></tr>`;
+  }).join('')
+    : '<tr><td class="empty" colspan="6">nothing ordered yet</td></tr>';
+
+  // Approve is wired here rather than inline so a row added on the next
+  // refresh gets a working button without re-binding anything.
+  $('#orders').querySelectorAll('[data-return]').forEach(b => {
+    b.onclick = async () => {
+      const said = prompt('Taking it back. What did they say?',
+                          'changed their mind');
+      if (said === null) return;
+      b.disabled = true; b.textContent = '...';
+      await fetch('/api/orders/return', {method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({order: b.dataset.return, said,
+                              reason: 'changed_mind'})});
+      refresh();
+    };
+  });
+
+  $('#orders').querySelectorAll('[data-reject]').forEach(b => {
+    b.onclick = async () => {
+      const why = prompt('Cancel this order. Why?', 'raised in error');
+      if (why === null) return;
+      b.disabled = true; b.textContent = '...';
+      await fetch('/api/orders/reject', {method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({order: b.dataset.reject, why})});
+      refresh();
+    };
+  });
+
+  $('#orders').querySelectorAll('[data-approve]').forEach(b => {
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = 'approving...';
+      const r = await (await fetch('/api/orders/approve', {method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({order: b.dataset.approve})})).json();
+      if(r.ok === false){ b.disabled = false; b.textContent = 'approve'; }
+      refresh();
+    };
+  });
+}
+
+async function book(){
+  const b = await (await fetch(`/api/book?dealer=${dealer}&limit=12`)).json();
+  const cs = b.customers || [], ws = b.wants || [];
+
+  $('#custcount').textContent = cs.length;
+  $('#customers').innerHTML = cs.length ? cs.map(c => `<tr class="edit"
+      data-say="${c.name} are on NEWTERMS terms">
+      <td>${c.name}</td>
+      <td class="dim">${c.kind||''}</td>
+      <td>${c.trade_terms ? `<span class="pill">${c.trade_terms}</span>` : ''}${
+        c.won_from_prospect ? '<span class="pill good">won from a lead</span>' : ''}</td>
+      <td class="num">${c.jobs}</td></tr>`).join('')
+    : '<tr><td class="empty">nobody on the book yet</td></tr>';
+
+  $('#wantcount').textContent = ws.length;
+  $('#wants').innerHTML = ws.length ? ws.map(w => `<div class="lead">
+      <div class="top"><span class="who">${w.customer}</span></div>
+      <div class="quote">${w.want}</div>
+      <div class="kind">${w.reason||''}</div>
+    </div>`).join('')
+    : '<div class="empty">nothing asked for yet. A want is written when somebody '
+      + 'says it on a call, or when a lead is booked in</div>';
+}
+
+async function crew(){
+  const d = await (await fetch(`/api/crew?dealer=${dealer}`)).json();
+  const people = d.crew || [];
+  $('#crewcount').textContent = people.filter(p=>p.active).length + ' available';
+  $('#crew').innerHTML = people.length ? people.map(p=>{
+    const certs = (p.certified||[]).map(c=>
+      `<span class="pill good" title="${c.covers||''}">${c.cert.replace('EPA608-','608 ')}</span>`).join('')
+      || '<span class="pill warn">no certificate on file</span>';
+    const fvf = p.first_visit_fix!=null
+      ? `<span class="pill">${p.first_visit_fix}% first-visit fix</span>` : '';
+    const bad = (p.cannot_legally_touch||[]).map(m=>
+      `<div class="bad">Rostered for ${m.family} but holds ${m.holds}. That needs ${m.needs}.</div>`).join('');
+    return `<div class="tech edit" data-say="${p.name} is now on MOBILE">
+      <div class="who">
+        <span class="nm">${p.name}</span>
+        <span class="base">${p.based||''} &middot; ${p.phone||''}${p.email?' &middot; '+p.email:''}</span>
+        ${certs}
+        <span class="pill">${p.visits} visits</span>
+        ${fvf}
+      </div>
+      <div class="on">${(p.works_on||[]).join(', ')||'no families on file'}</div>
+      ${bad}
+    </div>`;
+  }).join('') : '<div class="empty">nobody on this desk</div>';
+}
+
+async function floor(){
+  const q = famPick ? `&family=${encodeURIComponent(famPick)}` : '';
+  const d = await (await fetch(`/api/floor?dealer=${dealer}&limit=25${q}`)).json();
+  $('#floorcount').textContent = d.count + ' shown';
+
+  const fams = d.families || [];
+  if($('#fam').options.length !== fams.length + 1){
+    $('#fam').innerHTML = `<option value="">every kind (${
+      fams.reduce((a,f)=>a+(f.held||0),0)} in stock)</option>` +
+      fams.map(f=>`<option value="${f.family}">${f.family} - ${f.models} models, ${f.held||0} held</option>`).join('');
+    $('#fam').value = famPick;
+  }
+
+  $('#floor').innerHTML = (d.products||[]).map(p=>{
+    const ev = [];
+    if(p.recalled) ev.push(`<span class="pill warn">RECALLED · ${p.recalled.hazard||''}</span>`);
+    if(p.complaints) ev.push(`<span class="pill warn">${p.complaints} complaint${p.complaints>1?'s':''}</span>`);
+    if(p.returned) ev.push(`<span class="pill warn">${p.returned} returned</span>`);
+    if(p.outside) ev.push(`<span class="pill">${p.outside.rating}★ from ${p.outside.reviews} reviews</span>`);
+    if(p.market_median) ev.push(`<span class="pill">market $${Math.round(p.market_median).toLocaleString()}</span>`);
+    ev.push(p.on_hand>0 ? `<span class="pill good">${p.on_hand} in stock</span>`
+                        : `<span class="pill">${p.lead_time_days||0}d lead</span>`);
+    const pic = p.image
+      ? `<img class="shot" src="${p.image}" alt="" loading="lazy"
+             onerror="this.style.display='none'">` : '';
+    return `<div class="prod edit" data-say="the ${p.model_number} is NEWPRICE now">
+      ${pic}
+      <div class="t">
+        <span class="pill gold">$${(p.price||0).toLocaleString()}</span>
+        <span class="nm">${p.model||''}</span>
+        <span class="mk">${p.manufacturer||'no brand on the listing'} · ${p.family||''}</span>
+      </div>
+      <div class="ev">${ev.join('')}</div>
+      ${p.a_customer_said?`<div class="said">"${p.a_customer_said}"</div>`:''}
+    </div>`;
+  }).join('') || '<div class="empty">nothing on the floor</div>';
+}
+
+async function stopped(){
+  const d = await (await fetch(`/api/stopped?dealer=${dealer}&days=30`)).json();
+  $('#stopblocked').textContent = (d.blocked||0) + ' refused';
+  $('#stopfixed').textContent = (d.corrected||0) + ' put right';
+  const rows = (d.by_kind||[]);
+  $('#stopped').innerHTML = rows.length ? rows.map(k=>
+    `<div class="stop ${k.outcome==='blocked'?'b':'c'}">
+       <div class="n">${k.times}</div>
+       <div><div class="means">${k.means}</div>
+            <div class="kind">${k.kind} &middot; ${k.outcome} &middot; ${k.calls} call(s)</div></div>
+     </div>`).join('')
+    : '<div class="empty">nothing has needed stopping yet</div>';
+}
+
+async function hunting(){
+  const h = await (await fetch(`/api/hunting?dealer=${dealer}&limit=8`)).json();
+  const leads = h.leads || [];
+  $('#huntcount').textContent = leads.length;
+  $('#hunt').innerHTML = leads.length ? leads.map(L => {
+    const gate = L.desk_may_call
+      ? '<span class="pill good">desk may ring</span>'
+      : '<span class="pill warn">you ring, not the desk</span>';
+    const kit = L.kit && L.kit.sku
+      ? `<span class="pill">${L.kit.part}</span> <span class="pill gold">$${
+          (L.kit.offer_price ?? L.kit.price).toFixed(2)}</span>` +
+        (L.kit.on_hand > 0 ? `<span class="pill good">${L.kit.on_hand} on shelf</span>` : '')
+      : '';
+    const why = (L.rank_because||[]).map(b =>
+      `<span class="why">+${b.points} ${b.what}</span>`).join('');
+    return `<div class="lead edit" data-say="${L.name} said yes, I spoke to WHO, they want SOMETHING">
+      <div class="top">
+        <span class="pill teal rank" title="${L.rank_is_not||''}">${L.rank.toFixed(2)}</span>
+        <span class="who">${L.name}</span>
+        <span class="where">${L.kind||''} &middot; ${L.address||''}</span>
+        ${gate}
+      </div>
+      <div class="quote">${L.they_said||''}</div>
+      <div>${kit}</div>
+      <div class="whys">${why}</div>
+      <ul>${(L.sticky||[]).map(x=>`<li${/CANNOT RING/.test(x)?' class="no"':''}>${x}</li>`).join('')}</ul>
+    </div>`;
+  }).join('') : '<div class="empty">nothing found yet, run a sweep</div>';
+}
+
+document.addEventListener('change', e => {
+  if(e.target && e.target.getAttribute && e.target.getAttribute('data-demo')){
+    fireDemo(e.target.getAttribute('data-demo'));
+    return;
+  }
+  if(e.target && e.target.parentElement && e.target.parentElement.id === 'egs'){
+    fill(e.target.textContent.trim());
+  }
+  // Any row or button carrying a sentence composes it into the box rather
+  // than writing directly. The console agent stays the only write path, so
+  // every change still passes the same checks a typed sentence does.
+  const said = e.target.closest && e.target.closest('[data-say]');
+  if(said){ fill(said.getAttribute('data-say')); }
+  if(e.target && e.target.id === 'fam'){ famPick = e.target.value; floor().catch(()=>{}); }
+});
 
 function connect(){
   if(es) es.close();

@@ -199,3 +199,19 @@ def corpus(dbfile):
     memory.INDEXES.clear()
     memory.load_from_db()
     return memory.INDEXES
+
+@pytest.fixture(autouse=True)
+def _no_routing_leaks_between_tests():
+    """The routed vendor is a ContextVar, and one test routing to a vendor
+    left every test after it inheriting the routing: four offer tests failed
+    in the suite and passed alone.
+
+    That is the same mechanism a live call would use to inherit another
+    call's vendor, which is why the bridge now states it at the start of every
+    call rather than only setting it. This keeps the suite honest about it.
+    """
+    from src.tenancy import routed_to
+
+    routed_to("")
+    yield
+    routed_to("")

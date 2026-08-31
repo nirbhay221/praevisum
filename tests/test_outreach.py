@@ -81,7 +81,8 @@ def test_revoked_consent_blocks(corpus):
     _consent(db, "A-1", granted=1, revoked="2026-06-01")
     got = outreach.queue_outreach([{
         "kind": "offer", "account_id": "A-1", "account_name": "x",
-        "asset_id": None, "reason": "r", "evidence": "-"}], REF)
+        "asset_id": None, "reason": "r", "evidence": "-"}], REF,
+        at=datetime(2026, 8, 31, 10, 0))
 
     assert got["queued"] == []
     assert "revoked" in got["blocked"][0]["blocked_because"]
@@ -93,7 +94,8 @@ def test_granted_consent_allows_an_offer(corpus):
     _consent(db, "A-1")
     got = outreach.queue_outreach([{
         "kind": "offer", "account_id": "A-1", "account_name": "x",
-        "asset_id": None, "reason": "r", "evidence": "-"}], REF)
+        "asset_id": None, "reason": "r", "evidence": "-"}], REF,
+        at=datetime(2026, 8, 31, 10, 0))
 
     assert len(got["queued"]) == 1
 
@@ -255,7 +257,7 @@ def test_a_recall_outranks_a_sales_call(corpus):
          "asset_id": None, "reason": "buy this", "evidence": "-"},
         {"kind": "recall", "account_id": "A-1", "account_name": "x",
          "asset_id": "AS-FREEZER", "reason": "hazard", "evidence": "-"},
-    ], REF)
+    ], REF, at=datetime(2026, 8, 31, 10, 0))
 
     ready = outreach.due_now(REF, at=datetime(2026, 8, 31, 11, 0))["ready"]
     assert ready[0]["kind"] == "recall"
@@ -267,13 +269,23 @@ def test_nobody_is_rung_outside_their_quiet_hours(corpus):
     _consent(db, "A-1", before=540, after=1020)
     outreach.queue_outreach([{
         "kind": "offer", "account_id": "A-1", "account_name": "x",
-        "asset_id": None, "reason": "r", "evidence": "-"}], REF)
+        "asset_id": None, "reason": "r", "evidence": "-"}], REF,
+        at=datetime(2026, 8, 31, 10, 0))
 
-    night = outreach.due_now(REF, at=datetime(2026, 8, 31, 2, 0))
+    # THE NIGHT AFTER, not two in the morning on the day it was queued.
+    #
+    # queue_outreach stamps due_after with the real clock, and due_now only
+    # considers items whose due_after has passed. Asking about 02:00 TODAY
+    # therefore excluded the item entirely whenever the suite ran after 2am,
+    # which is almost always: the queue came back empty and the test read
+    # that as "nobody was held", which is not what it is checking.
+    #
+    # The claim is about the hour of day, so any 02:00 will do.
+    night = outreach.due_now(REF, at=datetime(2026, 9, 1, 2, 0))
     assert night["ready"] == []
     assert night["held_for_quiet_hours"]
 
-    day = outreach.due_now(REF, at=datetime(2026, 8, 31, 11, 0))
+    day = outreach.due_now(REF, at=datetime(2026, 9, 1, 11, 0))
     assert day["ready"]
 
 
@@ -317,7 +329,8 @@ def test_oral_consent_is_not_enough_for_a_marketing_call(corpus):
 
     got = outreach.queue_outreach([{
         "kind": "offer", "account_id": "A-1", "account_name": "x",
-        "asset_id": None, "reason": "r", "evidence": "-"}], REF)
+        "asset_id": None, "reason": "r", "evidence": "-"}], REF,
+        at=datetime(2026, 8, 31, 10, 0))
 
     assert got["queued"] == []
     assert "not enough for a marketing call" in got["blocked"][0]["blocked_because"]
@@ -330,7 +343,8 @@ def test_written_consent_allows_a_marketing_call(corpus):
 
     got = outreach.queue_outreach([{
         "kind": "offer", "account_id": "A-1", "account_name": "x",
-        "asset_id": None, "reason": "r", "evidence": "-"}], REF)
+        "asset_id": None, "reason": "r", "evidence": "-"}], REF,
+        at=datetime(2026, 8, 31, 10, 0))
     assert len(got["queued"]) == 1
 
 
@@ -370,7 +384,8 @@ def test_a_call_can_actually_be_taken_off_the_queue(corpus):
 
     outreach.queue_outreach([{
         "kind": "recall", "account_id": "A-1", "account_name": "x",
-        "asset_id": "AS-FREEZER", "reason": "hazard", "evidence": "e"}], REF)
+        "asset_id": "AS-FREEZER", "reason": "hazard", "evidence": "e"}], REF,
+        at=datetime(2026, 8, 31, 10, 0))
 
     got = outreach.take_next(REF, at=datetime(2026, 8, 31, 11, 0))
     assert got["call"] is not None
@@ -387,7 +402,8 @@ def test_the_same_call_cannot_be_taken_twice(corpus):
 
     outreach.queue_outreach([{
         "kind": "recall", "account_id": "A-1", "account_name": "x",
-        "asset_id": "AS-FREEZER", "reason": "hazard", "evidence": "e"}], REF)
+        "asset_id": "AS-FREEZER", "reason": "hazard", "evidence": "e"}], REF,
+        at=datetime(2026, 8, 31, 10, 0))
 
     at = datetime(2026, 8, 31, 11, 0)
     first = outreach.take_next(REF, at=at)
@@ -407,7 +423,8 @@ def test_opting_out_is_honoured_permanently(corpus):
 
     outreach.queue_outreach([{
         "kind": "offer", "account_id": "A-1", "account_name": "x",
-        "asset_id": None, "reason": "r", "evidence": "-"}], REF)
+        "asset_id": None, "reason": "r", "evidence": "-"}], REF,
+        at=datetime(2026, 8, 31, 10, 0))
     taken = outreach.take_next(REF, at=datetime(2026, 8, 31, 11, 0))
 
     out = outreach.record_outcome(taken["call"]["outreach_id"], "opted_out")
@@ -415,7 +432,8 @@ def test_opting_out_is_honoured_permanently(corpus):
 
     again = outreach.queue_outreach([{
         "kind": "offer", "account_id": "A-1", "account_name": "x",
-        "asset_id": None, "reason": "different offer", "evidence": "-"}], REF)
+        "asset_id": None, "reason": "different offer", "evidence": "-"}], REF,
+        at=datetime(2026, 8, 31, 10, 0))
     assert again["queued"] == []
 
 
@@ -427,7 +445,8 @@ def test_a_wrong_number_also_stops_the_calls(corpus):
     _consent(db, "A-1", form="written")
     outreach.queue_outreach([{
         "kind": "offer", "account_id": "A-1", "account_name": "x",
-        "asset_id": None, "reason": "r", "evidence": "-"}], REF)
+        "asset_id": None, "reason": "r", "evidence": "-"}], REF,
+        at=datetime(2026, 8, 31, 10, 0))
     taken = outreach.take_next(REF, at=datetime(2026, 8, 31, 11, 0))
 
     assert outreach.record_outcome(taken["call"]["outreach_id"],
@@ -441,6 +460,138 @@ def test_nothing_is_taken_outside_quiet_hours(corpus):
 
     outreach.queue_outreach([{
         "kind": "recall", "account_id": "A-1", "account_name": "x",
-        "asset_id": "AS-FREEZER", "reason": "hazard", "evidence": "e"}], REF)
+        "asset_id": "AS-FREEZER", "reason": "hazard", "evidence": "e"}], REF,
+        at=datetime(2026, 8, 31, 10, 0))
 
     assert outreach.take_next(REF, at=datetime(2026, 8, 31, 3, 0))["call"] is None
+
+
+def test_quiet_hours_are_the_customers_clock_not_the_servers(dbfile,
+                                                             monkeypatch):
+    """THE BUG THIS PINS, found on the live VM.
+
+    Quiet hours are minutes past midnight in the CUSTOMER's local time, and
+    due_now compared them against datetime.now(). On a laptop in Central time
+    that is right by coincidence. Production runs Etc/UTC:
+
+        VM clock   03:27 UTC
+        Chicago    22:27
+
+    The damaging direction is the afternoon. At 22:00 UTC it is 17:00 in
+    Chicago, an ordinary time to ring a restaurant, and the comparison refused
+    it for being past a 20:00 cutoff. The bug silently blocked the whole US
+    afternoon and only looked correct in the evening it was tested in.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from src import outreach
+
+    class FrozenUTC(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            utc = datetime(2026, 8, 30, 22, 0, tzinfo=ZoneInfo("UTC"))
+            return utc.astimezone(tz) if tz else utc.replace(tzinfo=None)
+
+    monkeypatch.setattr(outreach, "datetime", FrozenUTC)
+
+    local = outreach._local_now("D-REF")
+    assert local.hour == 17, (
+        f"22:00 UTC is 17:00 in Chicago, got {local.hour}:00. Quiet hours "
+        "are being measured against the server clock again.")
+
+
+def test_a_bad_timezone_does_not_stop_the_queue(dbfile):
+    """A dealer row with a nonsense timezone must not take the queue down."""
+    from src import db, outreach
+
+    with db.txn() as c:
+        c.execute("UPDATE dealers SET timezone='Not/AZone' WHERE id='D-REF'")
+
+    assert outreach._local_now("D-REF") is not None
+
+
+def test_revoking_consent_stops_a_call_already_in_the_queue(dbfile):
+    """FOUND BY THE OWNER, and worth more than any test I wrote.
+
+    Consent was checked when the sweep put an item INTO the queue and never
+    again. So withdrawing it stopped future items being queued and did nothing
+    to the one already sitting there: revoke at 09:00, and the call queued
+    yesterday still went out at 11:00.
+
+    That is the failure that matters legally. Withdrawal has to take effect on
+    the next CALL, not on the next sweep, which is the entire point of being
+    able to withdraw it.
+    """
+    from datetime import date, datetime
+
+    from src import db, outreach
+
+    with db.connect() as c:
+        acct = c.execute(
+            "SELECT id FROM accounts WHERE dealer_id='D-REF' LIMIT 1").fetchone()["id"]
+
+    with db.txn() as c:
+        c.execute(
+            """INSERT INTO outreach_consent
+                 (account_id,granted,granted_on,granted_via,quiet_before,
+                  quiet_after,max_per_days,consent_form)
+               VALUES (?,1,'2026-01-01','test',540,1200,3,'written')
+               ON CONFLICT(account_id) DO UPDATE SET
+                 granted=1, revoked_on=NULL, consent_form='written'""",
+            (acct,))
+        c.execute(
+            """INSERT INTO outreach_queue
+                 (id,dealer_id,account_id,kind,reason,evidence,priority,
+                  status,due_after)
+               VALUES ('OUT-TEST1',?,?,'offer','a thing','because',5,
+                       'queued','2020-01-01')""",
+            ("D-REF", acct))
+
+    at = datetime(2026, 8, 30, 11, 0)
+    ready = outreach.due_now("D-REF", at=at)["ready"]
+    assert any(x["outreach_id"] == "OUT-TEST1" for x in ready), (
+        "the fixture is wrong: it should be dialable before revocation")
+
+    with db.txn() as c:
+        c.execute("UPDATE outreach_consent SET revoked_on=? WHERE account_id=?",
+                  (date.today().isoformat(), acct))
+
+    out = outreach.due_now("D-REF", at=at)
+    assert not any(x["outreach_id"] == "OUT-TEST1" for x in out["ready"]), (
+        "consent was revoked and the queued call is still dialable")
+    assert any(x["outreach_id"] == "OUT-TEST1"
+               for x in out["dropped_since_queued"]), (
+        "it must be reported as dropped, not silently vanish")
+
+
+def test_a_safety_recall_still_goes_out_after_consent_is_revoked(dbfile):
+    """A hazard notice is not marketing and consent was never what permitted
+    it. Withdrawing marketing consent must not stop somebody being told their
+    freezer is under a federal recall."""
+    from datetime import date, datetime
+
+    from src import db, outreach
+
+    with db.connect() as c:
+        acct = c.execute(
+            "SELECT id FROM accounts WHERE dealer_id='D-REF' LIMIT 1").fetchone()["id"]
+
+    with db.txn() as c:
+        c.execute(
+            """INSERT INTO outreach_consent
+                 (account_id,granted,granted_on,granted_via,quiet_before,
+                  quiet_after,consent_form,revoked_on)
+               VALUES (?,1,'2026-01-01','test',540,1200,'written',?)
+               ON CONFLICT(account_id) DO UPDATE SET revoked_on=excluded.revoked_on""",
+            (acct, date.today().isoformat()))
+        c.execute(
+            """INSERT INTO outreach_queue
+                 (id,dealer_id,account_id,kind,reason,evidence,priority,
+                  status,due_after)
+               VALUES ('OUT-TEST2',?,?,'recall','recalled','CPSC',1,
+                       'queued','2020-01-01')""",
+            ("D-REF", acct))
+
+    ready = outreach.due_now("D-REF", at=datetime(2026, 8, 30, 11, 0))["ready"]
+    assert any(x["outreach_id"] == "OUT-TEST2" for x in ready)

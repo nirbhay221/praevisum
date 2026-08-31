@@ -1,0 +1,33 @@
+# The background half, as its own image.
+#
+# WHY THIS IS SEPARATE FROM THE PHONE
+#
+# The README explains why the desk is NOT on Cloud Run: a call holds a
+# websocket open for its whole length, and scaling to zero mid-call drops the
+# customer. That reasoning is right and it is also specific to calls.
+#
+# The sweep holds nothing. It reads the book, decides who is worth ringing,
+# queues them, and exits. Minutes of work once a day, on infrastructure that
+# is idle the rest of the time, which is exactly the shape Cloud Run bills
+# for. Running it on the VM means paying for a machine to sit still.
+#
+# Same source, same schema, different entry point. Nothing here may answer a
+# phone and nothing on the phone image runs a sweep.
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY src/ ./src/
+COPY scripts/ ./scripts/
+
+# Cloud Run Jobs run to completion and exit. Cloud Scheduler decides when,
+# and run_outreach.py already remembers when it last ran, so a scheduler that
+# fires late, twice, or not at all cannot double-ring anybody.
+CMD ["python", "scripts/run_outreach.py"]

@@ -11,6 +11,7 @@ the ticket rides in the URL that /voice hands out moments earlier.
 
 from __future__ import annotations
 
+import re
 import time
 from types import SimpleNamespace
 
@@ -38,6 +39,32 @@ def _settings(monkeypatch, token, ws_base="wss://example.test"):
 def signing(monkeypatch):
     """The ordinary production case: a secret exists and tickets are signed."""
     return _settings(monkeypatch, "test-token-abc123")
+
+
+
+def _signed(client, path, form, monkeypatch):
+    """POST as Twilio would, signature and all.
+
+    /voice and /outbound-voice hand out stream tickets and are now signed, so
+    a test that posts unsigned is testing the signature rather than the
+    ticket. See tests/test_webhook_auth.py for the signature itself.
+    """
+    import base64
+    import dataclasses
+    import hashlib
+    import hmac
+
+    from src import whatsapp
+
+    monkeypatch.setattr(
+        whatsapp, "settings",
+        dataclasses.replace(whatsapp.settings, twilio_auth_token="test-token"))
+
+    url = f"http://testserver{path}"
+    payload = url + "".join(f"{k}{form[k]}" for k in sorted(form))
+    sig = base64.b64encode(
+        hmac.new(b"test-token", payload.encode(), hashlib.sha1).digest()).decode()
+    return client.post(path, data=form, headers={"X-Twilio-Signature": sig})
 
 
 def test_a_fresh_ticket_is_accepted(signing):
@@ -93,15 +120,25 @@ def test_the_voice_handler_hands_out_a_usable_ticket(signing, monkeypatch):
     Worth asserting rather than assuming. A signing change that broke this
     would not fail loudly in testing, it would fail as every inbound call
     being hung up on.
+
+    Which is exactly what happened, and this test did not catch it, because it
+    read the ticket out of the query string the way a Python client would.
+    Twilio drops the query string. It now reads it out of the path, the way
+    Twilio gets it.
     """
     import asyncio
-    from urllib.parse import parse_qs, urlparse
+    from urllib.parse import urlsplit
 
     from src import main
 
-    twiml = asyncio.run(main.voice(From="+13095550101", To="+13095550000"))
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    twiml = _signed(client, "/voice",
+                    {"From": "+13095550101", "To": "+13095550000"},
+                    monkeypatch).text
     url = twiml.split('<Stream url="')[1].split('"')[0]
-    ticket = parse_qs(urlparse(url).query)["t"][0]
+    ticket = urlsplit(url).path.removeprefix("/stream/")
 
     assert main._ticket_ok(ticket)
 
@@ -156,3 +193,94 @@ def test_the_socket_can_be_opened_deliberately(monkeypatch):
 
     monkeypatch.setenv("PRAEVISUM_OPEN_STREAM", "1")
     assert main._ticket_ok("")
+
+
+# ---------------------------------------------------------------------------
+# The way Twilio actually connects, which is not the way a Python client does.
+# ---------------------------------------------------------------------------
+#
+# Every test above reaches the socket by handing it a ticket the way a script
+# would. Twilio does not. It reads the <Stream url> out of the TwiML, THROWS
+# THE QUERY STRING AWAY, and connects to the bare path.
+#
+# So the guard refused every real call, correctly, and the line stopped
+# answering. The guard went in on 21 August, the last call that connected was
+# on the 18th, and nobody rang in between. The journal said it in two lines:
+#
+#     "WebSocket /stream" 403                       <- Twilio, no query
+#     "WebSocket /stream?t=1787718544..." accepted  <- everything else
+#
+# These tests reproduce Twilio's shape rather than a client's.
+
+
+def test_the_ticket_survives_being_stripped_of_its_query_string(signing, monkeypatch):
+    """The bug, as a test. Take the URL the TwiML hands out, drop the query
+    string exactly as Twilio does, and it must still connect."""
+    from urllib.parse import urlsplit
+
+    from fastapi.testclient import TestClient
+
+    from src import main
+
+    monkeypatch.setattr(main.settings, "public_ws_base", "wss://example.test")
+    client = TestClient(main.app)
+
+    twiml = _signed(client, "/voice",
+                    {"From": "+13095550101", "To": "+18573617165"},
+                    monkeypatch).text
+    url = re.search(r'url="([^"]+)"', twiml).group(1)
+
+    parts = urlsplit(url)
+    assert parts.query == "", (
+        "the ticket must not live in the query string: Twilio drops it and "
+        "the call is refused before anybody says a word")
+    assert parts.path.startswith("/stream/"), "so it lives in the path"
+
+    # And the path form is what the socket actually honours.
+    with client.websocket_connect(parts.path) as ws:
+        ws.close()
+
+
+def test_the_bare_path_with_no_ticket_is_still_refused(signing):
+    """Moving the ticket into the path must not have opened the socket to
+    anyone who simply omits it."""
+    from fastapi.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
+
+    from src import main
+
+    client = TestClient(main.app)
+    with pytest.raises((WebSocketDisconnect, Exception)):
+        with client.websocket_connect("/stream") as ws:
+            ws.receive_text()
+
+
+def test_a_forged_ticket_in_the_path_is_refused(signing):
+    from fastapi.testclient import TestClient
+    from starlette.websockets import WebSocketDisconnect
+
+    from src import main
+
+    client = TestClient(main.app)
+    with pytest.raises((WebSocketDisconnect, Exception)):
+        with client.websocket_connect(f"/stream/{int(time.time()) + 60}.{'0' * 32}") as ws:
+            ws.receive_text()
+
+
+def test_the_outbound_twiml_carries_the_ticket_the_same_way(signing, monkeypatch):
+    """The mirror of /voice had the identical bug and would have failed the
+    first time it dialled anybody."""
+    from urllib.parse import urlsplit
+
+    from fastapi.testclient import TestClient
+
+    from src import main
+
+    monkeypatch.setattr(main.settings, "public_ws_base", "wss://example.test")
+    client = TestClient(main.app)
+
+    twiml = _signed(client, "/outbound-voice", {"outreach": "OUT-1"},
+                    monkeypatch).text
+    url = re.search(r'url="([^"]+)"', twiml).group(1)
+    assert urlsplit(url).query == ""
+    assert urlsplit(url).path.startswith("/stream/")

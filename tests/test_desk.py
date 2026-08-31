@@ -71,13 +71,24 @@ def test_both_channels_share_one_copy_of_the_rules(dbfile):
     """
     from src import agents
 
-    assert agents.DESK_RULES in agents.FRONT_INSTRUCTION
-    assert agents.DESK_RULES in agents.DESK_INSTRUCTION
+    # Checked on the RESOLVED instruction rather than the template. Both are
+    # now filled in per call, because one service answers two businesses'
+    # phones and the greeting used to be baked to one of them at import. The
+    # property being protected has not changed: one copy of the rules, not two
+    # texts that happen to agree today.
+    class _Ctx:
+        state = {"dealer_id": "D-REF"}
+
+    front = agents.front_agent.instruction(_Ctx())
+    desk = agents.desk_agent.instruction(_Ctx())
+
+    assert agents.DESK_RULES in front
+    assert agents.DESK_RULES in desk
 
     # and each still says the thing only its own medium needs
-    assert "press a key" in agents.FRONT_INSTRUCTION
-    assert "press a key" not in agents.DESK_INSTRUCTION
-    assert "photograph" in agents.DESK_INSTRUCTION.lower()
+    assert "press a key" in front
+    assert "press a key" not in desk
+    assert "photograph" in desk.lower()
 
 
 # Routing, which is one fact rather than a classifier.

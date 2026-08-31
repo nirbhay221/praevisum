@@ -28,6 +28,26 @@ class FakeWS:
         return [m for m in self.sent if m.get("event") == "media"]
 
 
+@pytest.fixture(autouse=True)
+def _restore_lead_in():
+    """Put LEAD_IN back after every test.
+
+    `_comfort` shortens it to 0.02 so the tests do not each wait 1.6 seconds,
+    and it used to leave it that way. Every test that ran afterwards saw a
+    lead-in of 20 milliseconds, including the one asserting the lead-in is
+    what keeps music out of a fast turn, which therefore tested nothing and
+    failed the moment it was written honestly.
+
+    The same shape as the SPEAKING contextvar that leaked a language between
+    unrelated tests: module state set by one test and never given back.
+    """
+    from src.telephony import comfort as C
+
+    was = C.LEAD_IN
+    yield
+    C.LEAD_IN = was
+
+
 def _comfort(sid="SID-1", lead_in=0.02):
     from src.telephony import comfort as C
 
@@ -181,21 +201,49 @@ def test_a_send_failure_never_ends_the_call():
     asyncio.run(go())      # must not raise
 
 
-def test_the_slow_tools_are_the_ones_that_stall():
-    """The list must name the tools that actually take seconds.
+def test_there_is_no_list_of_slow_tools_any_more():
+    """These two tests used to assert the bug.
 
-    assess_job fans out to three agents plus an embedding call. If it ever
-    stops being covered, the dead air comes straight back.
+    The bridge kept SLOW_TOOLS = {"assessment", "assess_job", "build_briefing"}
+    and started the music only for those. Across two real calls not one of them
+    ever fired: what actually made the caller wait was `scheduling` (twenty
+    five seconds at worst), `quote_visit` and `load_memory`. So the hold music
+    never played once, on any call, while 32.8 seconds of loaded audio sat in
+    memory waiting for a name that never came.
+
+    The list was redundant from the start. LEAD_IN is the mechanism that keeps
+    music out of a fast turn: comfort waits 1.6 seconds before making a sound,
+    so a quick lookup finishes first and is never heard. Filtering by name as
+    well added nothing except a second place to be wrong, and it drifted the
+    moment anybody added a tool.
     """
-    from src.telephony.twilio_bridge import SLOW_TOOLS
+    import inspect
 
-    assert "assessment" in SLOW_TOOLS or "assess_job" in SLOW_TOOLS
-    assert "build_briefing" in SLOW_TOOLS
+    from src.telephony import twilio_bridge
+
+    assert not hasattr(twilio_bridge, "SLOW_TOOLS")
+
+    # The body lives in _handle_call; handle_call is the wrapper that binds
+    # sync tools to a thread so a blocking one cannot drop the call.
+    src = inspect.getsource(twilio_bridge._handle_call)
+    assert "comfort.start()" in src
+    assert "in SLOW_TOOLS" not in src
 
 
-@pytest.mark.parametrize("name", ["check_stock", "current_deals", "set_intent"])
-def test_fast_tools_are_not_covered(name):
-    """Covering a fast tool would put music into every ordinary turn."""
-    from src.telephony.twilio_bridge import SLOW_TOOLS
+def test_a_fast_turn_still_makes_no_sound():
+    """The property the old list was trying to protect, tested against the
+    mechanism that actually provides it."""
+    from src.telephony import comfort
 
-    assert name not in SLOW_TOOLS
+    assert comfort.LEAD_IN >= 1.0, (
+        "the lead-in is the only thing keeping music out of a quick lookup")
+
+
+def test_the_audio_it_would_play_actually_loads():
+    """A silent call and a call with no audio file look identical from the
+    outside, and one of those we can fix."""
+    from src.telephony import comfort
+
+    frames = comfort._load()
+    assert len(frames) > 100
+    assert len(frames) * comfort.FRAME_MS / 1000 > 10, "at least ten seconds"

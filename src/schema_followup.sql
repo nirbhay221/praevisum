@@ -40,8 +40,16 @@ CREATE INDEX IF NOT EXISTS ix_calls_sid ON calls(twilio_sid);
 CREATE TABLE IF NOT EXISTS followups (
     id           TEXT PRIMARY KEY,
     dealer_id    TEXT REFERENCES dealers(id),
+    -- A closed set on purpose: followup.render() dispatches on this and
+    -- refuses to send a kind it has no wording for, so an unknown value here
+    -- would be a message nobody wrote. `review_ask` was added when the loop
+    -- was extended past "is it holding now?", and SQLite cannot alter a CHECK,
+    -- so adding a kind means the rebuild in scripts/allow_review_ask.py.
     kind         TEXT NOT NULL
-                 CHECK (kind IN ('missed_call','dropped_call','after_visit')),
+                 CHECK (kind IN ('missed_call','dropped_call','after_visit',
+                                 'escalation','review_ask',
+                                 'delivery_check_in',
+                                 'offer_consent')),
 
     account_id   TEXT REFERENCES accounts(id),
     contact_id   TEXT REFERENCES contacts(id),

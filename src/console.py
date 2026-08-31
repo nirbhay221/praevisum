@@ -292,7 +292,14 @@ def snapshot(dealer_id: str) -> dict:
                  (SELECT COUNT(*) FROM technicians WHERE dealer_id=? AND active=1) techs,
                  (SELECT COUNT(*) FROM repairs WHERE dealer_id=?) repairs,
                  (SELECT COUNT(*) FROM work_orders WHERE dealer_id=? AND status!='closed') open_jobs,
-                 (SELECT COUNT(*) FROM calls WHERE dealer_id=?) calls""",
+                 (SELECT COUNT(*) FROM calls WHERE dealer_id=?) calls,
+                 -- The two numbers that say what this desk is standing on.
+                 -- Machines it can speak about with a source, and federal
+                 -- recalls it checks a recommendation against. Neither is
+                 -- per-dealer: the catalogue is public data every trade here
+                 -- shares, which is exactly why it is worth showing.
+                 (SELECT COUNT(*) FROM equipment) machines_known,
+                 (SELECT COUNT(*) FROM recalls) recalls_watched""",
             (dealer_id,)*5).fetchone()
         fvf = c.execute(
             """SELECT COUNT(*) n, SUM(f.fixed_first_time) fixed
@@ -322,3 +329,137 @@ def dealers() -> list[dict]:
     with db.connect() as c:
         return [dict(r) for r in c.execute(
             "SELECT id, name, trade, phone_e164 FROM dealers ORDER BY name")]
+
+
+# ==========================================================================
+# the machines on the floor, which the owner could see and not change
+# ==========================================================================
+
+def set_product(dealer_id: str, model: str, list_price: float = 0.0,
+                on_hand: int = -1, manufacturer: str = "", family: str = "",
+                lead_time_days: int = -1) -> dict:
+    """Change a machine on the shop floor, or put a new one on it.
+
+    THE FLOOR WAS READ ONLY. Parts had create, price and stock; promotions had
+    create and stop; the 923 machines had nothing at all. An owner could watch
+    their stock and not correct it, which makes the screen a report rather
+    than a console.
+
+    Matched on model number rather than an id, because that is what somebody
+    reads off a box. Only the fields actually passed are changed: a price
+    correction must not silently zero the stock.
+    """
+    model = (model or "").strip()
+    if not model:
+        return {"ok": False, "why": "which machine? Give the model number"}
+
+    with db.connect() as c:
+        rows = c.execute(
+            """SELECT rowid, manufacturer, model_number, family, list_price,
+                      on_hand
+               FROM product_stock
+               WHERE dealer_id = ? AND LOWER(model_number) LIKE ?""",
+            (dealer_id, f"%{model.lower()}%")).fetchall()
+
+    if len(rows) > 1:
+        return {"ok": False,
+                "why": f"{len(rows)} machines match {model!r}",
+                "which": [f"{r['manufacturer']} {r['model_number']}"
+                          for r in rows[:6]],
+                "say": "Give the full model number so the right one changes."}
+
+    if not rows:
+        # CREATING NEEDS MORE THAN A TYPO. A bare model number and a price
+        # would silently add a product every time somebody mistypes a model
+        # they meant to edit, and the floor would fill with near-duplicates
+        # nobody put there on purpose. Requiring the manufacturer means
+        # creation is a thing you meant to do.
+        if list_price <= 0 or not manufacturer.strip():
+            return {"ok": False,
+                    "why": f"nothing on the floor matches {model!r}. To ADD "
+                           "it, give the manufacturer and a price; to change "
+                           "one that exists, check the model number",
+                    "adding_needs": ["manufacturer", "list_price"]}
+        with db.txn() as c:
+            c.execute(
+                """INSERT INTO product_stock
+                     (dealer_id,manufacturer,model_number,family,on_hand,
+                      on_order,list_price,lead_time_days,price_source,
+                      updated_at)
+                   VALUES (?,?,?,?,?,0,?,?, 'set by the owner', ?)""",
+                (dealer_id, manufacturer.strip(), model, family.strip() or None,
+                 max(on_hand, 0), list_price,
+                 lead_time_days if lead_time_days >= 0 else 0,
+                 datetime.now().isoformat(timespec="seconds")))
+        return {"ok": True, "added": True, "model": model,
+                "say": f"{model} is on the floor at ${list_price:,.2f}."}
+
+    row = rows[0]
+    sets, params = [], []
+    if list_price > 0:
+        sets.append("list_price=?")
+        params.append(list_price)
+        # The source matters. A price a person set is not a market median, and
+        # a screen that cannot tell them apart will drift.
+        sets.append("price_source=?")
+        params.append("set by the owner")
+    if on_hand >= 0:
+        sets.append("on_hand=?")
+        params.append(on_hand)
+    if lead_time_days >= 0:
+        sets.append("lead_time_days=?")
+        params.append(lead_time_days)
+    if family.strip():
+        sets.append("family=?")
+        params.append(family.strip())
+
+    if not sets:
+        return {"ok": False, "why": "nothing to change. Give a price, a "
+                                    "stock count, a lead time or a family"}
+
+    sets.append("updated_at=?")
+    params.append(datetime.now().isoformat(timespec="seconds"))
+
+    with db.txn() as c:
+        c.execute(f"UPDATE product_stock SET {', '.join(sets)} WHERE rowid=?",
+                  (*params, row["rowid"]))
+
+    return {"ok": True, "added": False,
+            "model": f"{row['manufacturer']} {row['model_number']}".strip(),
+            "was": {"price": row["list_price"], "on_hand": row["on_hand"]},
+            "say": "Changed. The phone agent reads this immediately."}
+
+
+def retire_product(dealer_id: str, model: str) -> dict:
+    """Stop offering a machine, without deleting what it has already sold.
+
+    NOT a delete. `purchase_lines`, complaints and returns point at what was
+    sold, and removing the row would orphan the history that tells an owner
+    why they stopped stocking it. Setting stock to zero and the lead time to
+    nothing takes it off the floor, which is what "delete" actually means
+    here.
+    """
+    with db.connect() as c:
+        row = c.execute(
+            """SELECT rowid, manufacturer, model_number, on_hand
+               FROM product_stock
+               WHERE dealer_id = ? AND LOWER(model_number) LIKE ?
+               LIMIT 2""", (dealer_id, f"%{(model or '').lower().strip()}%")
+        ).fetchall()
+
+    if not row:
+        return {"ok": False, "why": f"no machine matching {model!r}"}
+    if len(row) > 1:
+        return {"ok": False, "why": f"more than one machine matches {model!r}"}
+
+    r = row[0]
+    with db.txn() as c:
+        c.execute(
+            "UPDATE product_stock SET on_hand=0, on_order=0, "
+            "price_source='retired by the owner', updated_at=? WHERE rowid=?",
+            (datetime.now().isoformat(timespec="seconds"), r["rowid"]))
+
+    return {"ok": True, "model": f"{r['manufacturer']} {r['model_number']}".strip(),
+            "was_holding": r["on_hand"],
+            "say": "Off the floor. The record of what it sold and what came "
+                   "back is kept, because that is why you stopped stocking it."}

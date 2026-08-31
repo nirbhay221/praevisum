@@ -183,12 +183,25 @@ def test_something_already_on_order_is_not_chased_again(dbfile):
 
 def test_a_machine_we_do_not_carry_is_said_plainly(dbfile):
     """The desk's hard rule is never to claim availability unless a tool said
-    so. For machines no tool could say anything at all."""
+    so. For machines no tool could say anything at all.
+
+    This used to assert "do not invent a lead time", which was right about the
+    number and wrong about the conversation: the instruction beside it told
+    the desk to offer to price it in, and on a live call somebody asked to buy
+    a machine three times and was told three times that we do not stock it.
+    Nothing was ever raised.
+
+    Not carrying something is not the same as not being able to sell it, and
+    the lead time is no longer invented: it comes from what the thing actually
+    is. See tests/test_can_order_it_in.py.
+    """
     from src import supply
 
     out = supply.product_availability("Traulsen", "G12010")
     assert out["stocked"] is False
-    assert "do not invent a lead time" in out["say"]
+    assert out["can_order"] is True, "we can order almost anything in"
+    assert out["lead_time_days"] > 0
+    assert "Do NOT stop at" in out["say"]
 
 
 def test_a_machine_in_stock_answers_with_the_number(dbfile):

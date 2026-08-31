@@ -7,3 +7,4 @@ google-cloud-firestore
 python-dotenv
 google-cloud-pubsub
 cloud-sql-python-connector[pg8000]
+lingua-language-detector
