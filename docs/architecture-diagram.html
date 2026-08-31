@@ -1,0 +1,651 @@
+<title>Praevisum Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+:root{
+  --bg:#EEF1F3; --panel:#FFFFFF; --panel2:#F5F7F9; --panel3:#EBEFF2;
+  --line:#C3CED6; --line2:#DEE5EA;
+  --ink:#0E1418; --ink2:#465966; --ink3:#7A8C99;
+  --edge:#8B9BA7;
+  --blue:#1F6394; --bluebg:#E1EDF6;
+  --violet:#4C3F92; --violetbg:#E7E3F6;
+  --teal:#0B6E62; --tealbg:#DAEFEB;
+  --amber:#8E5410; --amberbg:#F7EDDC;
+  --red:#9C2F28; --redbg:#F9E3E0;
+  --grey:#5A6B77; --greybg:#E9EDF0;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#090D10; --panel:#131A20; --panel2:#0F161B; --panel3:#182027;
+    --line:#28343D; --line2:#1C252C;
+    --ink:#E8EFF3; --ink2:#9AAEBB; --ink3:#657987; --edge:#4A5D6B;
+    --blue:#6BB0DC; --bluebg:#11212C;
+    --violet:#9A8DE4; --violetbg:#1A1730;
+    --teal:#41C0A6; --tealbg:#0D2724;
+    --amber:#DDA04C; --amberbg:#251D11;
+    --red:#DF736A; --redbg:#281614;
+    --grey:#8FA1AE; --greybg:#161E24;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#090D10; --panel:#131A20; --panel2:#0F161B; --panel3:#182027;
+  --line:#28343D; --line2:#1C252C;
+  --ink:#E8EFF3; --ink2:#9AAEBB; --ink3:#657987; --edge:#4A5D6B;
+  --blue:#6BB0DC; --bluebg:#11212C;
+  --violet:#9A8DE4; --violetbg:#1A1730;
+  --teal:#41C0A6; --tealbg:#0D2724;
+  --amber:#DDA04C; --amberbg:#251D11;
+  --red:#DF736A; --redbg:#281614;
+  --grey:#8FA1AE; --greybg:#161E24;
+}
+
+*{box-sizing:border-box}
+body{margin:0; background:var(--bg); color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,sans-serif; font-size:14px; line-height:1.55}
+.page{max-width:1700px; margin:0 auto; padding:26px 20px 60px}
+
+header{display:flex; align-items:baseline; gap:18px; flex-wrap:wrap;
+  border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:20px}
+h1{font-family:"IBM Plex Mono",monospace; font-size:19px; font-weight:600;
+   margin:0; letter-spacing:-.01em}
+header .sub{color:var(--ink2); font-size:13.5px}
+.meta{margin-left:auto; display:flex; gap:14px; flex-wrap:wrap;
+  font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink3)}
+.meta b{color:var(--ink); font-weight:600}
+#theme{font-family:"IBM Plex Mono",monospace; font-size:10px; letter-spacing:.05em;
+  text-transform:uppercase; background:var(--panel); color:var(--ink2);
+  border:1px solid var(--line); border-radius:3px; padding:4px 9px; cursor:pointer}
+#theme:hover{color:var(--ink)} #theme:focus-visible{outline:2px solid var(--blue)}
+
+.canvas{border:1px solid var(--line); border-radius:5px; background:var(--panel);
+  overflow-x:auto}
+.canvas svg{display:block; min-width:1500px; width:100%; height:auto}
+
+/* svg classes */
+.zone{fill:var(--panel2); stroke:var(--line); stroke-width:1; rx:4}
+.zone2{fill:var(--panel3); stroke:var(--line); stroke-width:1; rx:4}
+.zlab{font-family:"IBM Plex Mono",monospace; font-size:9.5px; font-weight:600;
+  letter-spacing:.13em; fill:var(--ink3)}
+.b{fill:var(--panel); stroke:var(--line); stroke-width:1.1; rx:3}
+.b-blue{fill:var(--bluebg); stroke:var(--blue)}
+.b-violet{fill:var(--violetbg); stroke:var(--violet)}
+.b-teal{fill:var(--tealbg); stroke:var(--teal)}
+.b-amber{fill:var(--amberbg); stroke:var(--amber)}
+.b-red{fill:var(--redbg); stroke:var(--red); stroke-width:1.5}
+.b-grey{fill:var(--greybg); stroke:var(--grey)}
+.b-dash{stroke-dasharray:4 3}
+.n{font-family:"IBM Plex Mono",monospace; font-size:11.5px; font-weight:600;
+   fill:var(--ink)}
+.n-sm{font-family:"IBM Plex Mono",monospace; font-size:10px; fill:var(--ink2)}
+.d{font-family:"IBM Plex Sans",sans-serif; font-size:10px; fill:var(--ink2)}
+.d3{font-family:"IBM Plex Sans",sans-serif; font-size:9.5px; fill:var(--ink3)}
+.c-blue{fill:var(--blue)} .c-violet{fill:var(--violet)} .c-teal{fill:var(--teal)}
+.c-amber{fill:var(--amber)} .c-red{fill:var(--red)} .c-grey{fill:var(--grey)}
+.ln{stroke:var(--edge); stroke-width:1.3; fill:none}
+.ln-amber{stroke:var(--amber); stroke-width:1.3; fill:none}
+.ln-red{stroke:var(--red); stroke-width:1.3; fill:none}
+.dash{stroke-dasharray:5 4}
+.el{font-family:"IBM Plex Mono",monospace; font-size:8.5px; fill:var(--ink3)}
+
+.legend{display:flex; gap:16px; flex-wrap:wrap; margin:12px 0 0;
+  font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink2)}
+.legend span{display:inline-flex; align-items:center; gap:6px}
+.sw{display:inline-block; width:18px; height:10px; border-radius:2px; border:1px solid}
+.sw.b{background:var(--bluebg); border-color:var(--blue)}
+.sw.v{background:var(--violetbg); border-color:var(--violet)}
+.sw.r{background:var(--redbg); border-color:var(--red)}
+.sw.t{background:var(--tealbg); border-color:var(--teal)}
+.sw.a{background:var(--amberbg); border-color:var(--amber)}
+.sw.g{background:var(--greybg); border-color:var(--grey)}
+
+section{margin-top:30px}
+h2{font-family:"IBM Plex Mono",monospace; font-size:12px; font-weight:600;
+  letter-spacing:.1em; text-transform:uppercase; color:var(--ink3);
+  margin:0 0 10px; padding-bottom:7px; border-bottom:1px solid var(--line)}
+
+.grid2{display:grid; grid-template-columns:1fr 1fr; gap:18px}
+@media(max-width:1000px){.grid2{grid-template-columns:1fr}}
+.tbl{overflow-x:auto; border:1px solid var(--line); border-radius:4px;
+  background:var(--panel)}
+table{border-collapse:collapse; width:100%; min-width:460px; font-size:12.5px}
+th,td{padding:7px 11px; text-align:left; border-bottom:1px solid var(--line2);
+  vertical-align:top}
+th{font-family:"IBM Plex Mono",monospace; font-size:9.5px; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--ink3); font-weight:500;
+  background:var(--panel2); white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+td.m{font-family:"IBM Plex Mono",monospace; font-size:11.5px; white-space:nowrap}
+td.r{text-align:right; font-variant-numeric:tabular-nums}
+.warn td{color:var(--red)}
+footer{margin-top:34px; padding-top:14px; border-top:1px solid var(--line);
+  font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink3);
+  display:flex; gap:16px; flex-wrap:wrap}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="page">
+
+<header>
+  <h1>Praevisum</h1>
+  <span class="sub">Multi-tenant voice agent for field service. System architecture.</span>
+  <div class="meta">
+    <span><b>9</b> agents</span><span><b>50</b> tools</span>
+    <span><b>80</b> tables</span><span><b>1003</b> tests</span>
+    <button id="theme">theme</button>
+  </div>
+</header>
+
+<div class="canvas">
+<svg viewBox="0 0 1660 1210" role="img" aria-label="Praevisum system architecture">
+<defs>
+  <marker id="m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5"
+          markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M0 0 10 5 0 10z" fill="var(--edge)"/></marker>
+  <marker id="ma" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5"
+          markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M0 0 10 5 0 10z" fill="var(--amber)"/></marker>
+  <marker id="mr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5"
+          markerHeight="6.5" orient="auto-start-reverse">
+    <path d="M0 0 10 5 0 10z" fill="var(--red)"/></marker>
+</defs>
+
+<!-- ============================ 1 CLIENTS ============================= -->
+<text class="zlab" x="30" y="24">CLIENTS</text>
+<rect class="b b-blue" x="30" y="32" width="176" height="46"/>
+<text class="n c-blue" x="42" y="52">PSTN caller</text>
+<text class="d" x="42" y="68">inbound voice</text>
+
+<rect class="b b-blue" x="216" y="32" width="176" height="46"/>
+<text class="n c-blue" x="228" y="52">WhatsApp</text>
+<text class="d" x="228" y="68">text + media</text>
+
+<rect class="b b-blue" x="402" y="32" width="176" height="46"/>
+<text class="n c-blue" x="414" y="52">SMS</text>
+<text class="d" x="414" y="68">inbound text</text>
+
+<rect class="b b-blue" x="588" y="32" width="176" height="46"/>
+<text class="n c-blue" x="600" y="52">Field technician</text>
+<text class="d" x="600" y="68">SMS reply, photo</text>
+
+<rect class="b b-blue" x="774" y="32" width="176" height="46"/>
+<text class="n c-blue" x="786" y="52">Owner browser</text>
+<text class="d" x="786" y="68">console SPA + SSE</text>
+
+<rect class="b b-amber" x="960" y="32" width="176" height="46"/>
+<text class="n c-amber" x="972" y="52">Outbound callee</text>
+<text class="d" x="972" y="68">system-initiated</text>
+
+<path class="ln" d="M118 78 V116" marker-end="url(#m)"/>
+<path class="ln" d="M304 78 V116" marker-end="url(#m)"/>
+<path class="ln" d="M490 78 V116" marker-end="url(#m)"/>
+<path class="ln" d="M676 78 V116" marker-end="url(#m)"/>
+<path class="ln" d="M862 78 V116" marker-end="url(#m)"/>
+<path class="ln-amber" d="M1048 78 V116" marker-end="url(#ma)"/>
+
+<!-- ============================ 2 EDGE ================================ -->
+<rect class="zone" x="30" y="116" width="1250" height="142"/>
+<text class="zlab" x="44" y="136">EDGE  ·  FastAPI + uvicorn  ·  1x GCE e2 VM, us-central1-a  ·  systemd  ·  TLS</text>
+
+<rect class="b" x="44" y="146" width="200" height="98"/>
+<text class="n" x="56" y="166">POST /voice</text>
+<text class="d3" x="56" y="181">TwiML, opens stream</text>
+<text class="n" x="56" y="200">POST /outbound-voice</text>
+<text class="n" x="56" y="216">POST /fallback</text>
+<text class="n" x="56" y="232">POST /call-status</text>
+
+<rect class="b" x="254" y="146" width="196" height="98"/>
+<text class="n" x="266" y="166">POST /whatsapp</text>
+<text class="n" x="266" y="198">POST /sms</text>
+<text class="d3" x="266" y="215">HMAC signature check</text>
+<text class="d3" x="266" y="230">media fetch + vision OCR</text>
+
+<rect class="b b-amber" x="460" y="146" width="230" height="98"/>
+<text class="n c-amber" x="472" y="166">WS /stream/{ticket}</text>
+<text class="d3" x="472" y="182">single-use ticket, 60s TTL</text>
+<text class="d" x="472" y="202">Resample mulaw 8k to PCM 24k</text>
+<text class="d" x="472" y="218">Fills the 1.6s lookup gap</text>
+<text class="d" x="472" y="234">Blocking work off the event loop</text>
+
+<rect class="b" x="700" y="146" width="196" height="98"/>
+<text class="n" x="712" y="166">GET /console</text>
+<text class="n" x="712" y="182">GET /api/* (14)</text>
+<text class="n" x="712" y="198">POST /api/command</text>
+<text class="d3" x="712" y="215">SSE feed /api/events</text>
+<text class="d3" x="712" y="230">read paths + owner writes</text>
+
+<rect class="b b-grey" x="906" y="146" width="180" height="98"/>
+<text class="n c-grey" x="918" y="166">Tenant routing</text>
+<text class="d" x="918" y="183">Resolves which of 4</text>
+<text class="d" x="918" y="198">businesses owns this</text>
+<text class="d" x="918" y="213">request. No tenant name</text>
+<text class="d" x="918" y="228">is defaulted in any tool.</text>
+
+<rect class="b b-grey" x="1096" y="146" width="170" height="98"/>
+<text class="n c-grey" x="1108" y="166">Caller identity</text>
+<text class="d" x="1108" y="183">Resolves identity from</text>
+<text class="d" x="1108" y="198">E.164 before first word:</text>
+<text class="d" x="1108" y="213">account, sites, assets,</text>
+<text class="d" x="1108" y="228">last visit, language</text>
+
+<path class="ln" d="M640 258 V296" marker-end="url(#m)"/>
+<text class="el" x="650" y="280">27 routes, 1 timer</text>
+
+<!-- ============================ 3 RUNTIME ============================= -->
+<rect class="zone" x="30" y="296" width="1250" height="258"/>
+<text class="zlab" x="44" y="316">AGENT RUNTIME  ·  Google ADK 2.7  ·  Gemini on Vertex AI</text>
+
+<rect class="b b-violet" x="44" y="326" width="234" height="76"/>
+<text class="n c-violet" x="56" y="346">front</text>
+<text class="d3" x="56" y="361">gemini-live-2.5-flash-native-audio</text>
+<text class="d" x="56" y="378">Bidirectional audio, no STT/TTS</text>
+<text class="d" x="56" y="393">hop. 50 tools.</text>
+
+<rect class="b b-violet" x="288" y="326" width="234" height="76"/>
+<text class="n c-violet" x="300" y="346">desk</text>
+<text class="d3" x="300" y="361">gemini-3.6-flash</text>
+<text class="d" x="300" y="378">All text channels. Identical</text>
+<text class="d" x="300" y="393">50-tool surface to front.</text>
+
+<rect class="b b-violet" x="532" y="326" width="234" height="76"/>
+<text class="n c-violet" x="544" y="346">advice</text>
+<text class="d3" x="544" y="361">gemini-3.6-flash</text>
+<text class="d" x="544" y="378">Diagnosis over retrieved</text>
+<text class="d" x="544" y="393">repairs. 7 tools.</text>
+
+<rect class="b b-violet" x="776" y="326" width="234" height="76"/>
+<text class="n c-violet" x="788" y="346">supply</text>
+<text class="d3" x="788" y="361">gemini-3.5-flash-lite</text>
+<text class="d" x="788" y="378">Reorder arithmetic.</text>
+<text class="d" x="788" y="393">12 tools.</text>
+
+<rect class="b b-violet" x="1020" y="326" width="246" height="76"/>
+<text class="n c-violet" x="1032" y="346">console</text>
+<text class="d3" x="1032" y="361">gemini-3.5-flash-lite</text>
+<text class="d" x="1032" y="378">Sole writer of price, stock,</text>
+<text class="d" x="1032" y="393">promo, book. 18 tools.</text>
+
+<text class="zlab" x="44" y="424">CALLED BY front AND desk AS AgentTool  ·  4 entries, one of which is a tree</text>
+<rect class="zone2" x="44" y="432" width="1222" height="112"/>
+
+<rect class="b b-teal" x="58" y="444" width="574" height="88"/>
+<text class="n c-teal" x="70" y="463">assessment</text>
+<text class="d3" x="152" y="463">SequentialAgent, steps run in order</text>
+
+<rect class="b b-dash" x="70" y="470" width="336" height="54"/>
+<text class="d3" x="80" y="484">independent_lookups  ParallelAgent</text>
+<rect class="b" x="80" y="490" width="150" height="28"/>
+<text class="n" x="90" y="508">history</text>
+<rect class="b" x="240" y="490" width="150" height="28"/>
+<text class="n" x="250" y="508">dispatch</text>
+
+<rect class="b" x="440" y="470" width="180" height="54"/>
+<text class="n" x="452" y="489">parts</text>
+<text class="d" x="452" y="505">step 2, after both</text>
+<text class="d3" x="452" y="518">lookups return</text>
+<path class="ln" d="M406 497 H436" marker-end="url(#m)"/>
+
+<rect class="b" x="646" y="444" width="180" height="88"/>
+<text class="n" x="658" y="463">scheduling</text>
+<text class="d" x="658" y="481">Finds a genuinely free</text>
+<text class="d" x="658" y="496">slot and holds it so a</text>
+<text class="d" x="658" y="511">second call cannot</text>
+<text class="d" x="658" y="526">take the same one</text>
+
+<rect class="b b-violet" x="840" y="444" width="256" height="88"/>
+<text class="n c-violet" x="852" y="463">advice  ·  supply</text>
+<text class="d" x="852" y="481">The same two agents shown</text>
+<text class="d" x="852" y="496">above. They are peers of front</text>
+<text class="d" x="852" y="511">and desk AND are handed to</text>
+<text class="d" x="852" y="526">them as callable tools.</text>
+
+<rect class="b b-grey" x="1110" y="444" width="156" height="88"/>
+<text class="n c-grey" x="1122" y="463">50 tools</text>
+<text class="d" x="1122" y="481">distinct, across all</text>
+<text class="d" x="1122" y="496">five agents, built</text>
+<text class="d" x="1122" y="511">from 13 service</text>
+<text class="d" x="1122" y="526">modules</text>
+
+<path class="ln-red" d="M640 554 V572" marker-end="url(#mr)"/>
+
+<!-- ============================ 4 CALLBACKS =========================== -->
+<rect class="b b-red" x="30" y="572" width="1250" height="76"/>
+<text class="zlab c-red" x="44" y="591">POLICY INTERCEPTORS  ·  registered on every agent, not prompt text</text>
+<line x1="655" y1="598" x2="655" y2="638" stroke="var(--red)" stroke-dasharray="3 3"/>
+<text class="n c-red" x="44" y="612">before_tool_callback</text>
+<text class="n-sm" x="200" y="612">request scoping and policy</text>
+<text class="d" x="44" y="628">tenant isolation · EPA 608 cert gate · id injection · disproved-fact block</text>
+<text class="d" x="44" y="642">consent at dial time · records every refusal with its reason</text>
+<text class="n c-red" x="672" y="612">after_model_callback</text>
+<text class="n-sm" x="820" y="612">output review</text>
+<text class="d" x="672" y="628">Covers the no-tool-call path the first cannot see.</text>
+<text class="d" x="672" y="642">Unpriced figure blocked · false success claim rewritten from tool result</text>
+
+<path class="ln" d="M200 648 V690" marker-end="url(#m)"/>
+<path class="ln" d="M520 648 V690" marker-end="url(#m)"/>
+<path class="ln" d="M840 648 V690" marker-end="url(#m)"/>
+<path class="ln" d="M1150 648 V690" marker-end="url(#m)"/>
+
+<!-- ============================ 5 SERVICES ============================ -->
+<rect class="zone" x="30" y="690" width="1250" height="188"/>
+<text class="zlab" x="44" y="710">SERVICE LAYER  ·  ordinary code, no model in the loop</text>
+
+<rect class="b b-amber" x="44" y="720" width="238" height="146"/>
+<text class="n c-amber" x="56" y="739">Decision</text>
+<text class="d" x="56" y="757">Send a van, or fix it on the call</text>
+<text class="d" x="56" y="772">What to load, per part</text>
+<text class="d" x="56" y="787">Shelf cover, 95% and 99% critical</text>
+<text class="d" x="56" y="802">One set of shared constants</text>
+<text class="d" x="56" y="817">Publishes the working, live</text>
+<text class="d" x="56" y="832">Scores past predictions</text>
+<text class="d3" x="56" y="852">wasted trip $300 · carry rate 4%</text>
+
+<rect class="b" x="292" y="720" width="238" height="146"/>
+<text class="n" x="304" y="739">Entitlement and price</text>
+<text class="d" x="304" y="757">Is the install date ours or theirs</text>
+<text class="d" x="304" y="772">Who may legally do the work</text>
+<text class="d" x="304" y="787">Labour, call-out, parts</text>
+<text class="d" x="304" y="802">Offer applied at the quote</text>
+<text class="d" x="304" y="817">Maker cover, and our own tiered plan</text>
+<text class="d" x="304" y="832">What a sale must leave behind</text>
+<text class="d" x="304" y="847">Declines cover worth less than it costs</text>
+
+<rect class="b" x="540" y="720" width="238" height="146"/>
+<text class="n" x="552" y="739">Dispatch and diary</text>
+<text class="d" x="552" y="757">The crew and their certificates</text>
+<text class="d" x="552" y="772">Preferred and excluded engineers</text>
+<text class="d" x="552" y="787">Find a slot, then hold it</text>
+<text class="d" x="552" y="802">Road distance, cached per leg</text>
+<text class="d" x="552" y="817">Address to coordinates</text>
+<text class="d" x="552" y="832">Walk-in at a trade counter</text>
+<text class="d" x="552" y="847">Jobs nobody can be sent to</text>
+
+<rect class="b" x="788" y="720" width="238" height="146"/>
+<text class="n" x="800" y="739">Parts and supply</text>
+<text class="d" x="800" y="757">What to reorder: parts AND machines</text>
+<text class="d" x="800" y="772">Purchase orders to suppliers</text>
+<text class="d" x="800" y="787">Several suppliers asked at once</text>
+<text class="d" x="800" y="802">Sold, and not on the shelf</text>
+<text class="d" x="800" y="817">Did the parts leave the building</text>
+<text class="d" x="800" y="832">What came back, and why</text>
+<text class="d" x="800" y="847">Loss ledger: what a model costs us</text>
+
+<rect class="b" x="1036" y="720" width="230" height="146"/>
+<text class="n" x="1048" y="739">Close-out and learning</text>
+<text class="d" x="1048" y="757">Briefing emailed, closed by text reply</text>
+<text class="d" x="1048" y="772">Engineer asks a question back</text>
+<text class="d" x="1048" y="787">Reads the photo they sent</text>
+<text class="d" x="1048" y="802">A day later: is it still fixed</text>
+<text class="d" x="1048" y="817">Review asked, only once it held</text>
+<text class="d" x="1048" y="832">Finished job into the corpus</text>
+<text class="d" x="1048" y="847">Advised vs fitted, and what it cost</text>
+
+<path class="ln" d="M300 878 V916" marker-end="url(#m)"/>
+<path class="ln" d="M1000 878 V916" marker-end="url(#m)"/>
+
+<!-- ============================ 6 DATA ================================ -->
+<rect class="zone" x="30" y="916" width="1250" height="110"/>
+<text class="zlab" x="44" y="936">PERSISTENCE  ·  SQLite (deployed, and what the tests run on)  ·  the same schema ports to Postgres</text>
+
+<rect class="b b-teal" x="44" y="946" width="392" height="66"/>
+<text class="n c-teal" x="56" y="965">Operational  ·  80 tables</text>
+<text class="d" x="56" y="982">accounts, sites, contacts, phones, assets, work_orders,</text>
+<text class="d" x="56" y="996">quotes, appointments, parts, stock, purchase_orders,</text>
+<text class="d3" x="56" y="1008">complaints, returns, recalls, promotions, prospects</text>
+
+<rect class="b b-teal" x="446" y="946" width="330" height="66"/>
+<text class="n c-teal" x="458" y="965">Corpus  ·  851 repairs</text>
+<text class="d" x="458" y="982">Closed jobs with what really failed, embedded</text>
+<text class="d" x="458" y="996">for semantic retrieval. Query is translated,</text>
+<text class="d3" x="458" y="1008">translates query, preserves caller wording</text>
+
+<rect class="b" x="786" y="946" width="240" height="66"/>
+<text class="n" x="798" y="965">decisions</text>
+<text class="d" x="798" y="982">Every prediction, kept so it can</text>
+<text class="d" x="798" y="996">be scored against what really failed</text>
+<text class="d3" x="798" y="1008">scored later against the truth</text>
+
+<rect class="b b-red" x="1036" y="946" width="230" height="66"/>
+<text class="n c-red" x="1048" y="965">outreach_consent</text>
+<text class="d" x="1048" y="982">granted, form, revoked_on,</text>
+<text class="d" x="1048" y="996">quiet_before/after, max_per_days</text>
+<text class="d3" x="1048" y="1008">read at dial time, in customer TZ</text>
+
+<!-- ============================ 7 SCHEDULED =========================== -->
+<rect class="zone" x="30" y="1060" width="1250" height="130" stroke="var(--amber)" stroke-dasharray="4 3"/>
+<text class="zlab c-amber" x="44" y="1080">SCHEDULED  ·  systemd timer, nightly  ·  no model in the sweep itself  ·  safe to run twice</text>
+
+<rect class="b b-amber" x="44" y="1090" width="146" height="82"/>
+<text class="n c-amber" x="56" y="1109">learning</text>
+<text class="d" x="56" y="1126">finished jobs</text>
+<text class="d" x="56" y="1140">indexed</text>
+<text class="d3" x="56" y="1156">runs FIRST, so the</text>
+<text class="d3" x="56" y="1167">night sees today</text>
+
+<rect class="b b-red" x="200" y="1090" width="146" height="82"/>
+<text class="n c-red" x="212" y="1109">hazard</text>
+<text class="d" x="212" y="1126">own complaints</text>
+<text class="d" x="212" y="1140">grouped per model</text>
+<text class="d3" x="212" y="1156">finds every owner,</text>
+<text class="d3" x="212" y="1167">assigns the swap</text>
+
+<rect class="b" x="356" y="1090" width="146" height="82"/>
+<text class="n" x="368" y="1109">recall</text>
+<text class="d" x="368" y="1126">324 notices</text>
+<text class="d3" x="368" y="1142">matched to what</text>
+<text class="d3" x="368" y="1153">was actually sold</text>
+
+<rect class="b" x="512" y="1090" width="146" height="82"/>
+<text class="n" x="524" y="1109">prediction</text>
+<text class="d" x="524" y="1126">complaint to fault</text>
+<text class="d3" x="524" y="1142">120 day window,</text>
+<text class="d3" x="524" y="1153">discounted to 0.66</text>
+
+<rect class="b" x="668" y="1090" width="146" height="82"/>
+<text class="n" x="680" y="1109">offer</text>
+<text class="d" x="680" y="1126">what similar</text>
+<text class="d" x="680" y="1140">customers own</text>
+<text class="d3" x="680" y="1156">needs 3+ customers,</text>
+<text class="d3" x="680" y="1167">1 per 30 days</text>
+
+<rect class="b b-red" x="824" y="1090" width="146" height="82"/>
+<text class="n c-red" x="836" y="1109">the gate</text>
+<text class="d" x="836" y="1126">line type, consent</text>
+<text class="d3" x="836" y="1142">quiet hours in the</text>
+<text class="d3" x="836" y="1153">customer timezone,</text>
+<text class="d3" x="836" y="1164">do-not-call list</text>
+
+<rect class="b b-amber" x="980" y="1090" width="146" height="82"/>
+<text class="n c-amber" x="992" y="1109">dial</text>
+<text class="d" x="992" y="1126">highest priority</text>
+<text class="d" x="992" y="1140">call that is due</text>
+<text class="d3" x="992" y="1156">disclosure spoken</text>
+<text class="d3" x="992" y="1167">before anything else</text>
+
+<rect class="b" x="1136" y="1090" width="130" height="82"/>
+<text class="n" x="1148" y="1109">follow-ups</text>
+<text class="d" x="1148" y="1126">queued messages</text>
+<text class="d" x="1148" y="1140">actually sent</text>
+<text class="d3" x="1148" y="1156">same timer, after</text>
+<text class="d3" x="1148" y="1167">the queue drains</text>
+
+<path class="ln" d="M190 1131 H197" marker-end="url(#m)"/>
+<path class="ln" d="M346 1131 H353" marker-end="url(#m)"/>
+<path class="ln" d="M502 1131 H509" marker-end="url(#m)"/>
+<path class="ln" d="M658 1131 H665" marker-end="url(#m)"/>
+<path class="ln" d="M814 1131 H821" marker-end="url(#m)"/>
+<path class="ln-red" d="M970 1131 H977" marker-end="url(#mr)"/>
+<path class="ln" d="M1126 1131 H1133" marker-end="url(#m)"/>
+
+<text class="el" x="44" y="1186">Hold-music generation also runs here, capped at one track a night.  Prospecting for non-customers is NOT scheduled: it is run on demand, because each business considered costs two paid searches.</text>
+
+<path class="ln-amber dash" d="M1053 1172 V1192 H16 V60 H26" marker-end="url(#ma)"/>
+<text class="el c-amber" x="34" y="1204">answered outbound call re-enters at the edge as an inbound leg</text>
+
+<!-- ============================ EXTERNAL RAIL ========================= -->
+<text class="zlab" x="1310" y="24">EXTERNAL</text>
+<rect class="b" x="1310" y="146" width="320" height="66"/>
+<text class="n" x="1322" y="166">Twilio</text>
+<text class="d" x="1322" y="183">Programmable Voice, Media Streams (WSS),</text>
+<text class="d" x="1322" y="197">WhatsApp sandbox, Lookup v2 line type</text>
+<text class="d3" x="1322" y="209">A2P 10DLC blocks US SMS, so email is the tech channel</text>
+
+<rect class="b" x="1310" y="222" width="320" height="80"/>
+<text class="n" x="1322" y="242">Vertex AI</text>
+<text class="d" x="1322" y="259">Gemini live + 3.6-flash + 3.5-flash-lite</text>
+<text class="d" x="1322" y="273">Vision: nameplate and technician photos</text>
+<text class="d" x="1322" y="287">Embeddings: the 851-repair corpus</text>
+<text class="d3" x="1322" y="299">Lyria-002: hold music, 1 track/night, capped</text>
+
+<rect class="b" x="1310" y="312" width="320" height="56"/>
+<text class="n" x="1322" y="332">Serper</text>
+<text class="d" x="1322" y="349">Public complaint mining for prospects,</text>
+<text class="d" x="1322" y="362">market prices, outside reviews (never blended)</text>
+
+<rect class="b" x="1310" y="378" width="320" height="52"/>
+<text class="n" x="1322" y="398">Brevo SMTP</text>
+<text class="d" x="1322" y="415">Engineer job briefs, safety swap lists.</text>
+<text class="d3" x="1322" y="426">CAN-SPAM gate before send</text>
+
+<rect class="b" x="1310" y="440" width="320" height="52"/>
+<text class="n" x="1322" y="460">Nominatim</text>
+<text class="d" x="1322" y="477">Address to lat/lon, cached in geocodes.</text>
+<text class="d3" x="1322" y="488">1 req/s rate limit respected</text>
+
+<rect class="b b-dash" x="1310" y="502" width="320" height="66"/>
+<text class="n" x="1322" y="522">Google Routes API</text>
+<text class="d" x="1322" y="539">computeRouteMatrix, TRAFFIC_UNAWARE.</text>
+<text class="d" x="1322" y="553">Billed per origin x destination.</text>
+<text class="d3" x="1322" y="565">OPTIONAL: no key set, falls back to haversine</text>
+
+<rect class="b b-dash" x="1310" y="578" width="320" height="44"/>
+<text class="n" x="1322" y="598">Pub/Sub</text>
+<text class="d3" x="1322" y="613">Optional bus for work outliving the call</text>
+
+<path class="ln dash" d="M1280 179 H1310"/>
+<path class="ln dash" d="M1280 262 H1310"/>
+<path class="ln dash" d="M1280 340 H1310"/>
+<path class="ln dash" d="M1280 404 H1310"/>
+<path class="ln dash" d="M1280 466 H1310"/>
+<path class="ln dash" d="M1280 535 H1310"/>
+
+<!-- built, not wired -->
+<rect class="b b-dash" x="1310" y="700" width="320" height="178" stroke="var(--red)"/>
+<text class="zlab c-red" x="1322" y="720">BUILT, TESTED, NOT REACHABLE</text>
+<text class="d" x="1322" y="740">Found by walking the call graph and excluding</text>
+<text class="d" x="1322" y="754">web routes and functions handed to an agent.</text>
+<text class="n-sm c-red" x="1322" y="776">Disagreement about a visit</text>
+<text class="d" x="1322" y="791">Record both accounts, tell an outcome</text>
+<text class="d" x="1322" y="805">failure from a process one, settle it</text>
+<text class="n-sm" x="1322" y="825">Closed since: engineer briefings now</text>
+<text class="d" x="1322" y="840">email, delivery closes from the console,</text>
+<text class="d" x="1322" y="854">an offer plays over the hold music, and</text>
+<text class="d3" x="1322" y="868">the consent a marketing call needs can</text>
+<text class="d3" x="1322" y="880">finally be obtained by a customer</text>
+</svg>
+</div>
+
+<div class="legend">
+  <span><i class="sw b"></i> external actor</span>
+  <span><i class="sw v"></i> LLM agent</span>
+  <span><i class="sw r"></i> policy enforcement</span>
+  <span><i class="sw t"></i> persisted state</span>
+  <span><i class="sw a"></i> latency or cost sensitive</span>
+  <span><i class="sw g"></i> request scoping</span>
+  <span>dashed border: optional, or crosses a network boundary</span>
+</div>
+
+<section class="grid2">
+  <div>
+    <h2>Request paths</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>Entry</th><th>Agent</th><th>Transport</th></tr></thead>
+      <tbody>
+        <tr><td class="m">/voice</td><td class="m">front</td><td>TwiML then WSS media stream, mulaw 8k</td></tr>
+        <tr><td class="m">/whatsapp</td><td class="m">desk</td><td>Twilio webhook, HMAC verified</td></tr>
+        <tr><td class="m">/sms</td><td class="m">desk</td><td>Twilio webhook</td></tr>
+        <tr><td class="m">/api/command</td><td class="m">console</td><td>JSON, owner session</td></tr>
+        <tr><td class="m">/outbound-voice</td><td class="m">front</td><td>system-initiated, queue-driven</td></tr>
+        <tr><td class="m">timer</td><td>none</td><td>systemd, no model in the sweep itself</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div>
+    <h2>Model routing</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>Agent</th><th>Model</th><th class="r">Tools</th></tr></thead>
+      <tbody>
+        <tr><td class="m">front</td><td class="m">live-2.5-flash-native-audio</td><td class="r">50</td></tr>
+        <tr><td class="m">desk</td><td class="m">gemini-3.6-flash</td><td class="r">50</td></tr>
+        <tr><td class="m">advice</td><td class="m">gemini-3.6-flash</td><td class="r">7</td></tr>
+        <tr><td class="m">supply</td><td class="m">gemini-3.5-flash-lite</td><td class="r">12</td></tr>
+        <tr><td class="m">scheduling</td><td class="m">gemini-3.5-flash</td><td class="r">7</td></tr>
+        <tr><td class="m">history, parts</td><td class="m">gemini-3.5-flash</td><td class="r">1</td></tr>
+        <tr><td class="m">dispatch</td><td>no model, on purpose</td><td class="r">1</td></tr>
+        <tr><td colspan="2">a model that may not decide is a lossy hop</td><td class="r"></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<section>
+  <h2>Invariants enforced in code, not prompt</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Rule</th><th>Where</th><th>Failure it prevents</th></tr></thead>
+    <tbody>
+      <tr><td>Tenant isolation across 4 books</td><td class="m">before-tool check</td>
+        <td>Quoting one business stock levels from another</td></tr>
+      <tr><td>EPA 608 type must cover the circuit</td><td class="m">certification gate</td>
+        <td>Promising a visit that is not legal to make</td></tr>
+      <tr><td>No figure without a pricing tool call</td><td class="m">output review</td>
+        <td>An invented price reaching the caller</td></tr>
+      <tr><td>No success claim when every tool refused</td><td class="m">console reply guard</td>
+        <td>Reporting a change that did not happen</td></tr>
+      <tr><td>Consent evaluated at dial time, customer TZ</td><td class="m">dial-time gate</td>
+        <td>Calling after revocation, or at 3am local</td></tr>
+      <tr><td>Safety kinds bypass marketing consent only</td><td class="m">queue admission</td>
+        <td>Silencing a hazard warning as if it were an ad</td></tr>
+      <tr><td>Console is the only writer of price and stock</td><td class="m">agent tool lists</td>
+        <td>A caller talking the desk into a discount</td></tr>
+      <tr><td>Soft delete only, everywhere</td><td class="m">every write path</td>
+        <td>Orphaning 673 work orders behind a warranty claim</td></tr>
+      <tr><td>The price we quoted is the price we charge</td><td class="m">per-call register</td>
+        <td>Quoting cover at $22.60 and invoicing $45.00</td></tr>
+      <tr><td>Only what was read out can be ordered</td><td class="m">shortlist register</td>
+        <td>"the third one" buying a chair never mentioned</td></tr>
+      <tr><td>This call's order outranks a remembered id</td><td class="m">confirm gate</td>
+        <td>Confirming a desk bought on a different call</td></tr>
+      <tr><td>No line goes on an order unpriced</td><td class="m">confirm gate</td>
+        <td>A sale reaching invoicing at zero</td></tr>
+      <tr><td>Cover joins the machine's own order</td><td class="m">order assembly</td>
+        <td>Two invoices for one sale, one of them unpriceable</td></tr>
+      <tr><td>The machine must be the caller's own</td><td class="m">ownership check</td>
+        <td>Advising on a stranger's freezer, read off a past repair</td></tr>
+      <tr><td>Marketing consent must be written</td><td class="m">reply-only grant</td>
+        <td>An artificial voice calling on a spoken yes</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<footer>
+  <span>9 agents</span><span>50 tools</span><span>80 tables</span>
+  <span>997 tests</span>
+  <span>counts read from the running system</span>
+</footer>
+
+</div>
+
+<script>
+(function(){
+  var K='praevisum-arch-theme', r=document.documentElement, b=document.getElementById('theme');
+  try{ var s=localStorage.getItem(K); if(s) r.setAttribute('data-theme',s); }catch(e){}
+  function cur(){var a=r.getAttribute('data-theme'); if(a) return a;
+    return window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  b.addEventListener('click',function(){var n=cur()==='dark'?'light':'dark';
+    r.setAttribute('data-theme',n); try{localStorage.setItem(K,n);}catch(e){}});
+})();
+</script>
+
+</body></html>

@@ -4,6 +4,11 @@ One phone number. Four businesses behind it. The caller never hears about that.
 
 Written to be argued with. The last section lists what is wrong with it.
 
+A drawn version of the same system, with the enforcement layer laid out in
+full: [`architecture-diagram.html`](architecture-diagram.html) in this
+folder, [as a PDF](architecture.pdf), or online at
+<https://claude.ai/code/artifact/3c54a6d2-de63-400f-9d78-60cae3e540b9>
+
 ---
 
 ## What it is
